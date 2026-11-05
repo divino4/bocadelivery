@@ -1,51 +1,56 @@
 # Boca Delivery — Pix Mercado Pago
 
-## O que foi preparado
+Este pacote inclui o backend Firebase Cloud Functions para criar cobranças Pix por pedido e confirmar pagamentos por webhook.
 
-- Checkout solicita e-mail quando a forma de pagamento é Pix.
-- O pedido continua sendo salvo no Firestore.
-- A tela do pedido passa a exibir QR Code, Pix Copia e Cola e link do Mercado Pago.
-- A cobrança é criada no backend (Cloud Functions), nunca no navegador.
-- O backend recalcula itens, adicionais, cupom, taxa e total usando o Firestore antes de cobrar.
-- A criação usa `X-Idempotency-Key` para evitar cobranças duplicadas.
-- O webhook valida `x-signature`, consulta o pagamento diretamente na API e só marca `pago=true` quando o status retornado é `approved`.
-- A função grava um evento de auditoria da confirmação.
+## O que está incluído
 
-## Arquivos
+- `functions/index.js`: callable `createPixPayment` e webhook `mercadoPagoWebhook`.
+- `functions/package.json`: dependências do backend (Node.js 20).
+- `index.html`: já chama `createPixPayment` na região `southamerica-east1` e exibe os dados Pix gravados no pedido.
+- `firebase.json`, `.firebaserc` e `firestore.rules`.
 
-- `index.html`: interface atualizada.
-- `functions/index.js`: criação da cobrança e webhook.
-- `functions/package.json`: dependências Node 20.
-- `firebase.json`: configuração de deploy.
-- `firestore.rules`: regras existentes do projeto, preservadas.
+O backend recalcula o valor com base no cardápio, adicionais, cupom e taxa de entrega guardados no Firestore. O token do Mercado Pago fica apenas nos secrets do Firebase. O webhook valida a assinatura, consulta o pagamento na API do Mercado Pago e só marca `pago=true` quando o status consultado é `approved` e o valor/moeda/pedido correspondem.
 
-## Configuração obrigatória antes de produção
+## Antes de publicar
 
-1. Acesse o projeto Firebase `boca-delivery` com uma conta autorizada e confirme que Cloud Functions está habilitado. O deploy de Functions normalmente exige o plano Blaze (cobrança por uso).
-2. Na conta Mercado Pago, crie/seleciona uma aplicação e obtenha o **Access Token de produção**. Não coloque esse token no `index.html`.
-3. Cadastre o webhook da aplicação para eventos de pagamento (`payment`) usando a URL:
+1. Confirme que o projeto Firebase correto é `boca-delivery`.
+2. Cloud Functions normalmente exige que o projeto esteja no plano Blaze (cobrança por uso). Consulte o custo estimado e configure alertas de orçamento.
+3. No Mercado Pago, crie/seleciona a aplicação e use primeiro credenciais de teste. Nunca coloque o Access Token no HTML, GitHub ou mensagens.
+4. O webhook deve receber eventos de pagamento (`payment`). A URL de produção é:
 
    `https://southamerica-east1-boca-delivery.cloudfunctions.net/mercadoPagoWebhook`
 
-4. Copie a chave secreta de assinatura gerada na configuração do webhook.
-5. Na pasta raiz deste projeto, execute:
+5. Copie a chave secreta de assinatura que o Mercado Pago fornece para esse webhook. Ela é diferente do Access Token.
+6. Verifique se o e-mail `zhenburger@gmail.com` está cadastrado no Firebase Authentication, com e-mail verificado, para acesso de gestor definido nas regras.
 
-   ```bash
-   firebase use boca-delivery
-   firebase functions:secrets:set MP_ACCESS_TOKEN
-   firebase functions:secrets:set MP_WEBHOOK_SECRET
-   firebase deploy --only functions
-   firebase deploy --only firestore:rules
-   ```
+## Publicação pelo terminal
 
-   O CLI solicitará os valores dos segredos sem precisar gravá-los nos arquivos do projeto.
-6. Publique o `index.html` atualizado no mesmo hosting/domínio do Boca Delivery. Mantenha `manifest.json`, ícones e `sw.js` existentes.
-7. Faça primeiro um teste com credenciais de teste e um pagamento de teste, depois configure credenciais de produção e valide um Pix real de baixo valor.
+Na pasta raiz do projeto, com o Firebase CLI instalado e autenticado:
 
-## Atenção operacional
+```bash
+firebase use boca-delivery
+firebase functions:secrets:set MP_ACCESS_TOKEN
+firebase functions:secrets:set MP_WEBHOOK_SECRET
+firebase deploy --only functions
+firebase deploy --only firestore:rules
+```
 
-- O Access Token e a assinatura do webhook são segredos; nunca os envie em chat, Git ou frontend.
-- A confirmação automática depende do webhook estar cadastrado na aplicação correta e de `MP_WEBHOOK_SECRET` corresponder à chave secreta dessa configuração.
-- O QR Pix expira em 30 minutos. O fluxo de reemissão/expiração deve ser testado antes da publicação definitiva.
-- O botão administrativo de confirmação manual continua existindo como contingência e deve ser usado somente após conferir o recebimento no extrato.
-- O pacote original não continha `firebase.json`, `.firebaserc`, backend nem `firebase-bundle.js`; a configuração de deploy precisa ser conciliada com a hospedagem e a rotina atuais antes de substituir arquivos em produção.
+O CLI pedirá os valores dos secrets de forma interativa. Não os escreva em arquivos nem os envie por chat. Os dois comandos de deploy são separados para facilitar a identificação de erros.
+
+Depois que as Functions forem publicadas, cadastre/atualize o webhook no Mercado Pago com a URL acima. Publique o `index.html` atualizado no GitHub Pages. Preserve `manifest.json`, ícones, `firebase-bundle.js` e `sw.js`.
+
+## Teste obrigatório
+
+1. Use credenciais de teste do Mercado Pago e um usuário/conta de teste permitidos pelo Mercado Pago.
+2. Crie um pedido Pix pequeno e confira se o QR Code e o Pix Copia e Cola aparecem.
+3. Simule/pague o Pix de teste e confira se o pedido muda para pago automaticamente após o webhook.
+4. Confira os logs das Functions e o documento do pedido no Firestore.
+5. Só depois troque para credenciais de produção e faça um teste real de baixo valor.
+
+## Observações
+
+- O QR Code é solicitado com vencimento de 30 minutos.
+- Uma tentativa de gerar outro Pix consulta a cobrança anterior antes de criar uma nova, para reduzir risco de cobrança duplicada.
+- O webhook é idempotente: uma notificação repetida não deve gerar uma segunda confirmação.
+- O botão administrativo de confirmação manual é contingência e só deve ser usado depois de conferir o recebimento no extrato.
+- GitHub Pages hospeda o frontend estático. As Cloud Functions precisam ser implantadas separadamente no Firebase.
