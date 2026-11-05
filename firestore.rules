@@ -6,7 +6,7 @@ service cloud.firestore {
     function gestor() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email in ['SEU_EMAIL@exemplo.com'];
+        && request.auth.token.email in ['zhenburger@gmail.com'];
     }
 
     // Cardápio e configurações da loja: todos leem, só o gestor altera
