@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // TROQUE pelos e-mails dos gestores (os mesmos criados em Authentication)
+    function gestor() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['SEU_EMAIL@exemplo.com'];
+    }
+
+    // Cardápio e configurações da loja: todos leem, só o gestor altera
+    match /menu/{id}  { allow read: if true; allow write: if gestor(); }
+    match /cfg/{id}   { allow read: if true; allow write: if gestor(); }
+
+    // Cupons: cliente consulta um código por vez, mas não lista todos
+    match /cupons/{id} {
+      allow get: if true;
+      allow list, write: if gestor();
+    }
+
+    match /couriers/{id} { allow read, write: if gestor(); }
+
+    match /orders/{id} {
+      allow get: if true;            // acompanhamento pelo ID do pedido
+      allow list: if gestor();       // só o gestor lista todos
+      allow update, delete: if gestor();
+      allow create: if gestor() || validNewOrder(request.resource.data, id);
+
+      function validNewOrder(d, id) {
+        return d.id == id
+          && d.status == 'novo'
+          && d.pago == false
+          && d.n == 0
+          && d.courier == ''
+          && d.tipo in ['entrega', 'retirada']
+          && d.nome is string && d.nome.size() > 0 && d.nome.size() <= 80
+          && d.tel is string && d.tel.size() >= 8 && d.tel.size() <= 15
+          && d.itens is list && d.itens.size() > 0 && d.itens.size() <= 50
+          && d.total is number && d.subtotal is number
+          && d.desconto is number && d.taxa is number
+          && d.desconto >= 0 && d.desconto <= d.subtotal && d.taxa >= 0
+          && math.abs(d.total - (d.subtotal - d.desconto + d.taxa)) < 0.01;
+      }
+    }
+
+    // Auditoria: só criação, nunca altera nem apaga
+    match /audit/{aid} {
+      allow read: if gestor();
+      allow update, delete: if false;
+      allow create: if gestor() || (
+        request.resource.data.action == 'pedido_criado'
+        && request.resource.data.n == 0
+        && request.resource.data.prev == '0'
+        && request.resource.data.actor == 'cliente'
+        && aid == request.resource.data.orderId + '_0'
+      );
+    }
+  }
+}
