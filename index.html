@@ -183,11 +183,13 @@ const demo={
 async function fbStore(cfg){
   // 1) cópia do Firebase hospedada no próprio site; 2) se faltar, tenta o servidor do Google
   let M;try{M=await import('./firebase-bundle.js')}catch(e1){console.warn('bundle local falhou, tentando gstatic',e1);
-    const B='https://www.gstatic.com/firebasejs/10.12.2/',a=await import(B+'firebase-app.js'),f=await import(B+'firebase-firestore.js'),u=await import(B+'firebase-auth.js');M=Object.assign({},a,f,u)}
+    const B='https://www.gstatic.com/firebasejs/10.12.2/',a=await import(B+'firebase-app.js'),f=await import(B+'firebase-firestore.js'),u=await import(B+'firebase-auth.js'),fn=await import(B+'firebase-functions.js');M=Object.assign({},a,f,u,fn)}
   const initializeApp=M.initializeApp,F=M,A=M;
   const app=initializeApp(cfg),db=F.getFirestore(app),au=A.getAuth(app);
+  const fx=M.getFunctions(app,'southamerica-east1'),createPix=M.httpsCallable(fx,'createPixPayment');
   const clean=o=>JSON.parse(JSON.stringify(o));
   return{mode:'firebase',
+    async createPixPayment(orderId,email){return (await createPix({orderId,email})).data},
     col:(c,cb)=>F.onSnapshot(F.collection(db,c),s=>cb(s.docs.map(d=>d.data())),e=>console.warn(c,e.message)),
     doc:(c,id,cb)=>F.onSnapshot(F.doc(db,c,id),s=>cb(s.data()),e=>console.warn(c,e.message)),
     async get(c,id){try{return (await F.getDoc(F.doc(db,c,id))).data()}catch(e){return undefined}},
@@ -244,6 +246,7 @@ function cliente(){
    <div class="seg"><label><input type="radio" name="tipo" value="entrega" checked> Entrega</label><label id="lret"><input type="radio" name="tipo" value="retirada"> Retirar no balcão</label></div>
    <label>Nome<input name="nome" required autocomplete="name"></label>
    <label>WhatsApp com DDD<input name="tel" required inputmode="tel" autocomplete="tel" placeholder="61999999999"></label>
+   <label id="emailWrap">E-mail para identificar o pagamento Pix<input name="email" type="email" autocomplete="email" placeholder="voce@email.com"></label>
    <div id="ent" style="display:grid;gap:10px"><label>Cidade (região administrativa)<select name="cidade"></select></label><small id="nb" style="color:var(--mut)"></small><label>Endereço<input name="end" autocomplete="street-address" placeholder="Quadra, conjunto, casa/lote"></label></div>
    <label>Pagamento<select name="pag"><option value="Pix">Pix (pago pelo app do banco)</option><option value="Dinheiro">Dinheiro</option><option value="Cartão">Cartão (maquininha)</option></select></label>
    <label id="trc" hidden>Troco para quanto?<input name="troco" inputmode="decimal" placeholder="Ex.: 50 (vazio se não precisa)"></label>
@@ -252,7 +255,7 @@ function cliente(){
    <div class="sum" id="sum"></div><p class="bad" id="warn" role="alert" style="margin:0"></p><button class="btn" id="sub">Enviar pedido</button></form>
   <div id="dlg"></div><div class="bar" id="bar" hidden><span id="bt"></span><button class="btn" id="go" style="background:var(--hi);color:var(--ink)">Ver pedido</button></div>`;
   const f=$('#co').elements;
-  ['nome','tel','end'].forEach(k=>{if(saved[k])f[k].value=saved[k]});
+  ['nome','tel','end','email'].forEach(k=>{if(saved[k])f[k].value=saved[k]});
   const cents=x=>Math.round(x*100)/100;
   const calc=()=>{const sub=cents(cart.reduce((s,l)=>s+l.qtd*l.preco,0));let desc=0;
     if(cupom&&sub<(cupom.min||0)){cupom=null;$('#cmsg').textContent='Cupom removido: o pedido ficou abaixo do mínimo do cupom.'}
@@ -301,10 +304,12 @@ function cliente(){
   }
   app.onclick=e=>{
     const c=e.target.closest('[data-copy]');if(c){const v=c.dataset.copy,t=c.textContent;(navigator.clipboard?navigator.clipboard.writeText(v):Promise.reject()).then(()=>{c.textContent='Copiado!';setTimeout(()=>c.textContent=t,1500)},()=>prompt('Copie o código:',v));return}
+    const retry=e.target.closest('[data-retry-pix]');if(retry){retry.disabled=true;const saved=JSON.parse(LS.boca2_cli||'{}');if(!S.createPixPayment||!saved.email){alert('Não foi possível recuperar o e-mail usado no pedido. Fale com a loja.');retry.disabled=false;return}S.createPixPayment(retry.dataset.retryPix,saved.email).catch(err=>{alert('Não foi possível gerar o Pix. Confira a configuração do Mercado Pago ou fale com a loja.');retry.disabled=false;console.error(err)});return}
     const a=e.target.closest('[data-add]');if(a){openItem(menu.filter(m=>m.id===a.dataset.add)[0]);return}
     const k=e.target.closest('[data-k]');if(k){const l=cart[+k.dataset.k];l.qtd+=+k.dataset.d;if(l.qtd<1)cart.splice(+k.dataset.k,1);drawCart()}};
   $('#go').onclick=()=>{$('#co').hidden=false;$('#co').scrollIntoView({behavior:'smooth'})};
-  $('#co').onchange=()=>{$('#trc').hidden=f.pag.value!=='Dinheiro';drawCart()};
+  $('#co').onchange=()=>{$('#trc').hidden=f.pag.value!=='Dinheiro';f.email.required=f.pag.value==='Pix';$('#emailWrap').style.display=f.pag.value==='Pix'?'':'none';drawCart()};
+  f.email.required=f.pag.value==='Pix';$('#emailWrap').style.display=f.pag.value==='Pix'?'':'none';
   $('#apc').onclick=async()=>{const code=f.cupom.value.trim().toUpperCase(),m=$('#cmsg');cupom=null;
     if(!code){m.textContent='';return drawCart()}
     const c=await S.get('cupons',code),sub=calc().sub;
@@ -313,17 +318,18 @@ function cliente(){
   $('#co').onsubmit=async e=>{e.preventDefault();const btn=$('#sub');btn.disabled=true;const c=calc();
     const o={id:rid('B'),status:'novo',criado:new Date().toISOString(),nome:f.nome.value.trim(),tel:f.tel.value.replace(/\D/g,''),
       tipo:c.ret?'retirada':'entrega',cidade:c.ret?'':f.cidade.value,regiao:c.rg?c.rg.nome:'',end:c.ret?'':f.end.value.trim(),pag:f.pag.value,troco:f.pag.value==='Dinheiro'?f.troco.value.trim():'',obs:f.obs.value.trim(),
-      itens:cart.map(l=>({nome:l.nome,qtd:l.qtd,preco:l.preco,extras:l.extras,obs:l.obs})),subtotal:c.sub,desconto:c.desc,cupom:cupom?cupom.id:'',taxa:c.taxa,total:c.total,pago:false,courier:'',eta:c.eta};
-    try{await S.add(o);LS.boca2_last=o.id;LS.boca2_cli=JSON.stringify({nome:o.nome,tel:o.tel,end:o.end,cidade:o.cidade});cart=[];cupom=null;f.cupom.value='';$('#cmsg').textContent='';f.obs.value='';$('#co').hidden=true;drawCart();window.scrollTo(0,0);track()}
-    catch(x){alert('Não foi possível enviar o pedido. Tente de novo.');console.error(x)}drawCart()};
+      itens:cart.map(l=>({produtoId:l.id,nome:l.nome,qtd:l.qtd,preco:l.preco,extras:l.extras,obs:l.obs})),subtotal:c.sub,desconto:c.desc,cupom:cupom?cupom.id:'',taxa:c.taxa,total:c.total,pago:false,courier:'',eta:c.eta};
+    try{await S.add(o);LS.boca2_last=o.id;LS.boca2_cli=JSON.stringify({nome:o.nome,tel:o.tel,end:o.end,cidade:o.cidade,email:f.email.value.trim()});
+      if(o.pag==='Pix'){if(!S.createPixPayment)throw new Error('Integração Pix ainda não implantada no Firebase.');await S.createPixPayment(o.id,f.email.value.trim())}
+      cart=[];cupom=null;f.cupom.value='';$('#cmsg').textContent='';f.obs.value='';$('#co').hidden=true;drawCart();window.scrollTo(0,0);track()}
+    catch(x){alert(x&&x.message&&x.message.includes('Integração Pix')?'O pedido foi registrado, mas o Pix ainda não está configurado. Entre em contato com a loja.':'O pedido foi registrado, mas não foi possível gerar o Pix. Tente novamente ou fale com a loja.');console.error(x);LS.boca2_last=o.id;track()}drawCart()};
   function track(){const id=LS.boca2_last;if(!id)return;unsubs.push(S.doc('orders',id,o=>{if(!o){$('#track').innerHTML='';return}
     const i=FLOW.indexOf(o.status),ret=o.tipo==='retirada';
     $('#track').innerHTML=`<div class="track"><b>Pedido ${E(o.id)}: ${L(o.status,o.tipo)}</b><div>${o.itens.map(l=>(+l.qtd||0)+'× '+E(l.nome)).join(', ')} · ${R(o.total)} · ${ret?'Retirada no balcão':'Entrega'}</div>
     ${o.courier&&o.status==='entrega'?`<div>Entregador: ${E(o.courier)}</div>`:''}${['novo','preparo'].indexOf(o.status)>=0?`<div>Tempo estimado: ${E(o.eta||C.tempo)}</div>`:''}
     ${o.status==='cancelado'?'':`<div class="steps" aria-hidden="true">${FLOW.map((_,k)=>`<span class="${k<=i?'on':''}"></span>`).join('')}</div>`}
     ${o.pago?'<p class="ok" style="margin:10px 0 0">Pagamento confirmado. Obrigado!</p>':''}
-    ${C.pixChave&&!o.pago&&o.pag==='Pix'&&['cancelado','entregue'].indexOf(o.status)<0?`<div class="pix"><b>Pague com Pix: ${R(o.total)}</b><p>No app do banco, escolha Pix copia e cola e cole o código. O valor já vem preenchido.</p><code>${E(pixPayload(o.total,o.id))}</code>
-      <div class="act"><button class="btn sm" data-copy="${E(pixPayload(o.total,o.id))}">Copiar código Pix</button><button class="btn sm ghost" data-copy="${E(C.pixChave)}">Copiar só a chave</button></div><p>Depois de pagar, envie o comprovante no WhatsApp para agilizar.</p></div>`:''}</div>`}))}
+    ${!o.pago&&o.pag==='Pix'&&['cancelado','entregue'].indexOf(o.status)<0?(o.pixQrCode?`<div class="pix"><b>Pix de ${R(o.total)} · aguardando pagamento</b><p>Escaneie o QR Code pelo aplicativo do seu banco ou copie o código abaixo.</p>${o.pixQrBase64?`<p style="text-align:center"><img alt="QR Code Pix" style="width:220px;max-width:100%;background:#fff;padding:10px;border-radius:8px" src="data:image/png;base64,${E(o.pixQrBase64)}"></p>`:''}<code>${E(o.pixQrCode)}</code><div class="act"><button class="btn sm" data-copy="${E(o.pixQrCode)}">Copiar Pix copia e cola</button>${o.pixTicketUrl?`<a class="btn sm ghost" href="${E(o.pixTicketUrl)}" target="_blank" rel="noopener">Abrir pagamento</a>`:''}</div><p>Assim que o Mercado Pago confirmar, esta tela será atualizada automaticamente. Não é necessário enviar comprovante.</p></div>`:`<div class="pix"><b>Pix ainda não gerado</b><p>Se a cobrança não apareceu, tente novamente.</p><button class="btn sm" data-retry-pix="${E(o.id)}">Gerar Pix novamente</button></div>`):''}</div>`}))}
   track();
 }
 
@@ -439,7 +445,7 @@ function pedidos(tc){
       ${ret?'':E(o.cidade||o.bairro)+' · '+E(o.end)+'<br>'}${E(o.pag)}${o.troco?' · troco p/ '+E(o.troco):''}${o.obs?'<br><i>Obs: '+E(o.obs)+'</i>':''}<br><b>${R(o.total)}</b>${o.cupom?' <small>('+E(o.cupom)+')</small>':''} ${o.pago?'<span class="tag ok">PAGO</span>':s==='cancelado'?'':'<span class="tag wait">A RECEBER</span>'}
       ${!ret&&(s==='preparo'||s==='entrega')?`<select data-c="${E(o.id)}" aria-label="Entregador" style="width:100%;margin-top:6px;padding:6px"><option value="">Entregador…</option>${cs.map(c=>`<option ${c.nome===o.courier?'selected':''}>${E(c.nome)}</option>`).join('')}</select>`:''}
       <div class="act">${nx?`<button class="btn sm" data-a="${E(o.id)}|${nx}">${nx==='preparo'?'Aceitar':nx==='entrega'?(ret?'Pronto p/ retirada':'Saiu p/ entrega'):'Entregue'}</button>`:''}
-      ${s==='cancelado'?'':o.pago?`<button class="btn sm ghost" data-a="${E(o.id)}|unpay">Desfazer pago</button>`:`<button class="btn sm" style="background:var(--ok)" data-a="${E(o.id)}|pay">Marcar pago</button>`}
+      ${s==='cancelado'?'':o.pago?`<button class="btn sm ghost" data-a="${E(o.id)}|unpay">Desfazer pago</button>`:`<button class="btn sm" style="background:var(--ok)" data-a="${E(o.id)}|pay">Confirmar recebimento manual</button>`}
       ${s!=='entregue'&&s!=='cancelado'?`<button class="btn sm ghost" data-a="${E(o.id)}|cancelado">Cancelar</button>`:''}
       <button class="btn sm ghost" data-a="${E(o.id)}|print">Comanda</button>
       <a class="btn sm alt" target="_blank" rel="noopener" style="text-decoration:none" href="https://wa.me/55${E(o.tel.replace(/^55/,''))}?text=${encodeURIComponent((C.nome)+', pedido '+o.id+': '+MSG(o)[s])}">WhatsApp</a></div></div>`}).join('')}</div>`}).join('');
@@ -540,7 +546,7 @@ function config(tc){
   <label style="flex-direction:row;display:flex;gap:8px;align-items:center"><input type="checkbox" name="retirada" ${C.retirada?'checked':''}> Aceitar retirada no balcão</label>
   ${i('minimo','Pedido mínimo padrão para entrega (R$). Cada região pode ter o seu.',C.minimo,'inputmode="decimal"')}
   ${i('wpp','WhatsApp da loja (55 + DDD + número, só números)',C.wpp,'inputmode="numeric"')}
-  <h2 style="margin:0">Pix</h2>${i('pixChave','Chave Pix',C.pixChave)}<div class="grid2">${i('pixNome','Nome do recebedor (até 25 letras)',C.pixNome)}${i('pixCidade','Cidade (até 15 letras)',C.pixCidade)}</div>
+  <h2 style="margin:0">Pix manual antigo (não utilizado com Mercado Pago)</h2>${i('pixChave','Chave Pix antiga',C.pixChave)}<div class="grid2">${i('pixNome','Nome do recebedor (até 25 letras)',C.pixNome)}${i('pixCidade','Cidade (até 15 letras)',C.pixCidade)}</div>
   <p id="sv" class="ok" role="status" style="margin:0"></p><button class="btn">Salvar configurações</button></form>
   <h2>Cidades atendidas (Distrito Federal)</h2><p class="note">Marque as cidades (regiões administrativas) onde você entrega e defina taxa, pedido mínimo e tempo de cada uma. Quem estiver em cidade não marcada não consegue pedir entrega; a retirada no balcão continua disponível.</p>
   <form class="f" id="cd"><div class="act"><button type="button" class="btn sm ghost" id="ca">Marcar todas</button><button type="button" class="btn sm ghost" id="cn">Desmarcar todas</button></div>
