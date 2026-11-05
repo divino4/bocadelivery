@@ -87,8 +87,15 @@ summary{cursor:pointer}.ord small{color:var(--mut)}
 <noscript><p style="padding:16px">Ative o JavaScript do navegador para usar o Boca Delivery.</p></noscript>
 <script>
 (async()=>{
-// ===== CONFIGURAÇÃO: cole aqui o firebaseConfig. Com null o app roda em MODO TESTE (PIN do gestor: 1234) =====
-const FIREBASE_CONFIG = null;
+// ===== CONFIGURAÇÃO DO FIREBASE (projeto boca-delivery). Se trocar por null, o app volta ao MODO TESTE =====
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyBzMX8SnBe9zgnwkeuj2AB3B9JrfQYJgAg",
+  authDomain: "boca-delivery.firebaseapp.com",
+  projectId: "boca-delivery",
+  storageBucket: "boca-delivery.firebasestorage.app",
+  messagingSenderId: "1088437105463",
+  appId: "1:1088437105463:web:7b4e34976c57a09bcda0b2"
+};
 // ==========================================================================================================
 const mk=n=>{try{const s=window[n];s.setItem('_t','1');s.removeItem('_t');return s}catch(e){return {}}};
 const LS=mk('localStorage'),SS=mk('sessionStorage');
@@ -170,9 +177,10 @@ const demo={
 };
 // ---------- Armazenamento: Firebase ----------
 async function fbStore(cfg){
-  const B='https://www.gstatic.com/firebasejs/10.12.2/';
-  const {initializeApp}=await import(B+'firebase-app.js');
-  const F=await import(B+'firebase-firestore.js'),A=await import(B+'firebase-auth.js');
+  // 1) cópia do Firebase hospedada no próprio site; 2) se faltar, tenta o servidor do Google
+  let M;try{M=await import('./firebase-bundle.js')}catch(e1){console.warn('bundle local falhou, tentando gstatic',e1);
+    const B='https://www.gstatic.com/firebasejs/10.12.2/',a=await import(B+'firebase-app.js'),f=await import(B+'firebase-firestore.js'),u=await import(B+'firebase-auth.js');M=Object.assign({},a,f,u)}
+  const initializeApp=M.initializeApp,F=M,A=M;
   const app=initializeApp(cfg),db=F.getFirestore(app),au=A.getAuth(app);
   const clean=o=>JSON.parse(JSON.stringify(o));
   return{mode:'firebase',
@@ -186,7 +194,9 @@ async function fbStore(cfg){
     async login(email,pw){const c=await A.signInWithEmailAndPassword(au,email,pw);return c.user.email}};
 }
 let S=demo;
-try{if(FIREBASE_CONFIG)S=await fbStore(FIREBASE_CONFIG)}catch(e){console.error(e);alert('Firebase não carregou. Usando modo teste.')}
+try{if(FIREBASE_CONFIG)S=await fbStore(FIREBASE_CONFIG)}catch(e){console.error(e);
+  if(FIREBASE_CONFIG){$('#app').innerHTML='<div class="hero"><h1>Sem conexão</h1><p>Não foi possível carregar o sistema. Verifique a internet e <a href="">tente de novo</a>. Se continuar, avise a loja.</p></div>';return}
+  alert('Firebase não carregou. Usando modo teste.')}
 if(S.mode==='teste'&&!LS.boca2_seed){SEED.forEach((m,i)=>m.ord=i);demo.w('menu',SEED);demo.w('cupons',[{id:'BOCA10',tipo:'%',valor:10,min:30,ativo:true}]);demo.w('couriers',[{id:'c1',nome:'João (moto)',tel:''}]);LS.boca2_seed='1'}
 
 // ---------- Estado global ----------
