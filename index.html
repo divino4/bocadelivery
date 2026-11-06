@@ -89,6 +89,7 @@ summary{cursor:pointer}.ord small{color:var(--mut)}
 <script>
 (async()=>{
 // ===== CONFIGURAÇÃO DO FIREBASE (projeto boca-delivery). Se trocar por null, o app volta ao MODO TESTE =====
+const PIX_WORKER_URL = "https://boca-delivery-pix.valdivinomartinsdias89.workers.dev";
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyBzMX8SnBe9zgnwkeuj2AB3B9JrfQYJgAg",
   authDomain: "boca-delivery.firebaseapp.com",
@@ -183,13 +184,12 @@ const demo={
 async function fbStore(cfg){
   // 1) cópia do Firebase hospedada no próprio site; 2) se faltar, tenta o servidor do Google
   let M;try{M=await import('./firebase-bundle.js')}catch(e1){console.warn('bundle local falhou, tentando gstatic',e1);
-    const B='https://www.gstatic.com/firebasejs/10.12.2/',a=await import(B+'firebase-app.js'),f=await import(B+'firebase-firestore.js'),u=await import(B+'firebase-auth.js'),fn=await import(B+'firebase-functions.js');M=Object.assign({},a,f,u,fn)}
+    const B='https://www.gstatic.com/firebasejs/10.12.2/',a=await import(B+'firebase-app.js'),f=await import(B+'firebase-firestore.js'),u=await import(B+'firebase-auth.js');M=Object.assign({},a,f,u)}
   const initializeApp=M.initializeApp,F=M,A=M;
   const app=initializeApp(cfg),db=F.getFirestore(app),au=A.getAuth(app);
-  const fx=M.getFunctions(app,'southamerica-east1'),createPix=M.httpsCallable(fx,'createPixPayment');
   const clean=o=>JSON.parse(JSON.stringify(o));
   return{mode:'firebase',
-    async createPixPayment(orderId,email){return (await createPix({orderId,email})).data},
+    async createPixPayment(orderId,email){const r=await fetch(PIX_WORKER_URL+'/create-pix',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({orderId,email})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Não foi possível gerar o Pix.');return d},
     col:(c,cb)=>F.onSnapshot(F.collection(db,c),s=>cb(s.docs.map(d=>d.data())),e=>console.warn(c,e.message)),
     doc:(c,id,cb)=>F.onSnapshot(F.doc(db,c,id),s=>cb(s.data()),e=>console.warn(c,e.message)),
     async get(c,id){try{return (await F.getDoc(F.doc(db,c,id))).data()}catch(e){return undefined}},
