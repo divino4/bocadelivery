@@ -138,6 +138,25 @@ async function patchDoc(env, collection, id, patch) {
     method: "PATCH", body: JSON.stringify({ fields })
   });
 }
+async function createOrPatchDoc(env, collection, id, data) {
+  const existing = await getDoc(env, collection, id);
+  if (existing) return patchDoc(env, collection, id, data);
+  const fields = {};
+  for (const [key, value] of Object.entries(data)) fields[key] = fsEncode(value);
+  const projectId = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT).project_id;
+  const token = await googleAccessToken(env);
+  const response = await fetch("https://firestore.googleapis.com/v1/projects/" +
+    encodeURIComponent(projectId) + "/databases/(default)/documents/" +
+    collection + "?documentId=" + encodeURIComponent(id), {
+      method: "POST",
+      headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({ fields })
+    });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok && response.status !== 409) throw new Error("Firestore create HTTP " + response.status);
+  if (response.status === 409) return patchDoc(env, collection, id, data);
+  return body;
+}
 async function calculateOrder(env, order) {
   if (!Array.isArray(order.itens) || order.itens.length < 1 || order.itens.length > 50) throw new Error("O pedido não possui itens válidos.");
   const cfg = await getDoc(env, "cfg", "loja") || {};
@@ -230,7 +249,7 @@ async function createPix(request, env) {
   }
 
   const verified = await calculateOrder(env, order);
-  const attemptId = order.pixAttemptId || crypto.randomUUID();
+  const attemptId = order.pixStatus === "error" && order.pixAttemptId && !order.pixPaymentId ? order.pixAttemptId : crypto.randomUUID();
   await patchDoc(env, "orders", orderId, {
     subtotal: verified.subtotal, desconto: verified.desconto, taxa: verified.taxa,
     total: verified.total, itens: verified.itens, pixAttemptId: attemptId,
@@ -305,7 +324,7 @@ async function webhook(request, env) {
         amount: Number(payment.transaction_amount), actor: "mercado_pago_webhook",
         ts: new Date().toISOString()
       };
-      await patchDoc(env, "audit", "mp_" + String(payment.id), audit);
+      await createOrPatchDoc(env, "audit", "mp_" + String(payment.id), audit);
     }
     if (order.pago !== true || payment.status === "approved") await patchDoc(env, "orders", orderId, patch);
     return new Response("ok", { status: 200 });
