@@ -189,7 +189,16 @@ async function fbStore(cfg){
   const fx=M.getFunctions(app,'southamerica-east1'),createPix=M.httpsCallable(fx,'createPixPayment');
   const clean=o=>JSON.parse(JSON.stringify(o));
   return{mode:'firebase',
-    async createPixPayment(orderId,email){return (await createPix({orderId,email})).data},
+async createPixPayment(orderId,email){
+  const r=await fetch('https://boca-delivery-pix.valdivinomartinsdias89.workers.dev/create-pix',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({orderId,email})
+  });
+  const data=await r.json();
+  if(!r.ok)throw new Error(data.error||'Não foi possível gerar o Pix.');
+  return data;
+},
     col:(c,cb)=>F.onSnapshot(F.collection(db,c),s=>cb(s.docs.map(d=>d.data())),e=>console.warn(c,e.message)),
     doc:(c,id,cb)=>F.onSnapshot(F.doc(db,c,id),s=>cb(s.data()),e=>console.warn(c,e.message)),
     async get(c,id){try{return (await F.getDoc(F.doc(db,c,id))).data()}catch(e){return undefined}},
