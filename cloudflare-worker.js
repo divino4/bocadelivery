@@ -346,6 +346,15 @@ export default {
     });
     const url = new URL(request.url);
     try {
+      if (url.pathname === "/health" && request.method === "GET") {
+        try {
+          await getDoc(env, "cfg", "loja");
+          return json({ ok: true, firebase: "connected" });
+        } catch (error) {
+          console.error("Health check failed", error);
+          return json({ ok: false, firebase: "unavailable" }, 503);
+        }
+      }
       if (url.pathname === "/create-pix" && request.method === "POST") return await createPix(request, env);
       if (url.pathname === "/webhook") return await webhook(request, env);
       if (url.pathname === "/" && request.method === "GET") return new Response("Boca Delivery Pix Worker", { status: 200 });
