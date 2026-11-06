@@ -206,7 +206,21 @@ async createPixPayment(orderId,email){
     del:(c,id)=>F.deleteDoc(F.doc(db,c,id)),
     async add(o){const a=await entry(o,'pedido_criado','','novo','cliente',await snap(o));o.n=a.n;o.lastHash=a.hash;const b=F.writeBatch(db);b.set(F.doc(db,'orders',o.id),clean(o));b.set(F.doc(db,'audit',o.id+'_'+a.n),a);await b.commit()},
     async log(o,action,from,to,patch,actor,d){const a=await entry(o,action,from,to,actor,d);const b=F.writeBatch(db);b.update(F.doc(db,'orders',o.id),Object.assign({},clean(patch),{n:a.n,lastHash:a.hash}));b.set(F.doc(db,'audit',o.id+'_'+a.n),a);await b.commit()},
-    async login(email,pw){const c=await A.signInWithEmailAndPassword(au,email,pw);return c.user.email}};
+    async login(email,pw){
+      const c=await A.signInWithEmailAndPassword(au,email,pw);
+      if(!c.user.emailVerified){
+        const token=await c.user.getIdToken();
+        const response=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key='+encodeURIComponent(cfg.apiKey),{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({requestType:'VERIFY_EMAIL',idToken:token})
+        });
+        const result=await response.json();
+        if(!response.ok)throw new Error('Boca: Não foi possível enviar o e-mail de verificação. '+(result.error?.message||''));
+        throw new Error('Boca: Seu e-mail ainda não está verificado. Enviamos um link para sua caixa de entrada. Abra o link e depois entre novamente.');
+      }
+      return c.user.email
+    }};
 }
 let S=demo;
 try{if(FIREBASE_CONFIG)S=await fbStore(FIREBASE_CONFIG)}catch(e){console.error(e);
@@ -244,7 +258,7 @@ function login(){
   const t=S.mode==='teste';
   app.innerHTML=`<div class="hero"><h1>Acesso do gestor</h1></div>${t?'<p class="note">Modo teste: use o PIN 1234. Em produção o login é por e-mail e senha do Firebase.</p>':''}
   <form class="f" id="lf"><label>${t?'PIN':'E-mail'}<input id="u" ${t?'type="password" inputmode="numeric"':'type="email"'} required></label>${t?'':'<label>Senha<input id="p" type="password" required></label>'}<p class="bad" id="err" role="alert"></p><button class="btn">Entrar</button></form>`;
-  $('#lf').onsubmit=async e=>{e.preventDefault();try{actor=await S.login($('#u').value,t?undefined:$('#p').value);SS.boca2_actor=actor;route()}catch(x){$('#err').textContent=t?'PIN incorreto.':'E-mail ou senha incorretos.'}};
+  $('#lf').onsubmit=async e=>{e.preventDefault();try{actor=await S.login($('#u').value,t?undefined:$('#p').value);SS.boca2_actor=actor;route()}catch(x){$('#err').textContent=x.message&&x.message.startsWith('Boca:')?x.message.slice(5):(t?'PIN incorreto.':'E-mail ou senha incorretos.')}};
 }
 
 // ================= CLIENTE =================
