@@ -248,7 +248,7 @@ function aberto(){
 const msgFechado=()=>C.modo==='fechado'?'Estamos fechados no momento.':'Estamos fechados agora. Abrimos às '+C.abre+'.';
 
 // ---------- Rotas ----------
-function nav(){const h=location.hash||'#cliente';$('#nav').innerHTML=[['#cliente','Cardápio'],['#gestor','Gestor'],['#auditoria','Auditoria']].map(x=>`<a href="${x[0]}" class="${h===x[0]?'on':''}">${x[1]}</a>`).join('')}
+function nav(){const h=location.hash||'#cliente';const links=h==='#cliente'?[['#cliente','Cardápio']]:[['#cliente','Cardápio'],['#gestor','Gestor'],['#auditoria','Auditoria']];$('#nav').innerHTML=links.map(x=>`<a href="${x[0]}" class="${h===x[0]?'on':''}">${x[1]}</a>`).join('')}
 function route(){clear();stopBell();onData=function(){};nav();const h=location.hash||'#cliente';
   if(h==='#cliente')return cliente();
   if(!actor)return login();
