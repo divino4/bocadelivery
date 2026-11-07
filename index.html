@@ -607,7 +607,7 @@ function auditoria(){
   $('#out').onclick=e=>{e.preventDefault();delete SS.boca2_actor;actor=null;route()};
   watchOrders();let A=[],O=[];
   const det=a=>a.action==='entregador_atribuido'?E(a.d):(a.action==='status_alterado'||a.action==='pedido_cancelado'||a.action==='pedido_criado')?E(LBL[a.from]||'—')+' → '+E(LBL[a.to]||'—'):'pedido: '+E(LBL[a.to]||'—');
-  const draw=()=>{$('#tb').innerHTML=A.slice().sort((a,b)=>b.ts.localeCompare(a.ts)).map(a=>`<tr><td>${new Date(a.ts).toLocaleString('pt-BR')}</td><td>${E(a.orderId)}</td><td>${E(AL[a.action]||a.action)}</td><td>${det(a)}</td><td>${E(a.actor)}</td><td><code>${a.hash.slice(0,16)}…</code></td></tr>`).join('')};
+  const draw=()=>{$('#tb').innerHTML=A.slice().sort((a,b)=>b.ts.localeCompare(a.ts)).map(a=>`<tr><td>${new Date(a.ts).toLocaleString('pt-BR')}</td><td>${E(a.orderId)}</td><td>${E(AL[a.action]||a.action)}</td><td>${det(a)}</td><td>${E(a.actor)}</td><td><code>${String(a.hash||'—').slice(0,16)}${a.hash?'…':''}</code></td></tr>`).join('')};
   unsubs.push(S.col('audit',l=>{A=l;draw()}));unsubs.push(S.col('orders',l=>{O=l}));
   $('#vf').onclick=async()=>{const errs=[],ids=[],add=x=>{if(ids.indexOf(x)<0)ids.push(x)};A.forEach(a=>add(a.orderId));O.forEach(o=>add(o.id));
     for(let z=0;z<ids.length;z++){const id=ids[z],ch=A.filter(a=>a.orderId===id).sort((a,b)=>a.n-b.n),o=O.filter(x=>x.id===id)[0];
