@@ -610,7 +610,7 @@ function auditoria(){
   const draw=()=>{$('#tb').innerHTML=A.slice().sort((a,b)=>b.ts.localeCompare(a.ts)).map(a=>`<tr><td>${new Date(a.ts).toLocaleString('pt-BR')}</td><td>${E(a.orderId)}</td><td>${E(AL[a.action]||a.action)}</td><td>${det(a)}</td><td>${E(a.actor)}</td><td><code>${String(a.hash||'—').slice(0,16)}${a.hash?'…':''}</code></td></tr>`).join('')};
   unsubs.push(S.col('audit',l=>{A=l;draw()}));unsubs.push(S.col('orders',l=>{O=l}));
   $('#vf').onclick=async()=>{const errs=[],ids=[],add=x=>{if(ids.indexOf(x)<0)ids.push(x)};A.forEach(a=>add(a.orderId));O.forEach(o=>add(o.id));
-    for(let z=0;z<ids.length;z++){const id=ids[z],ch=A.filter(a=>a.orderId===id).sort((a,b)=>a.n-b.n),o=O.filter(x=>x.id===id)[0];
+    for(let z=0;z<ids.length;z++){const id=ids[z],ch=A.filter(a=>a.orderId===id&&a.hash&&Number.isInteger(a.n)).sort((a,b)=>a.n-b.n),o=O.filter(x=>x.id===id)[0];
       if(!ch.length){errs.push(id+': pedido sem nenhum registro de auditoria');continue}
       let prev='0';for(let k=0;k<ch.length;k++){const a=ch[k];
         if(a.n!==k){errs.push(id+': registro '+k+' ausente na sequência');break}
@@ -618,7 +618,7 @@ function auditoria(){
         if(await sha(canon(a))!==a.hash){errs.push(id+': registro '+k+' foi alterado');break}prev=a.hash}
       if(o&&ch[0].action==='pedido_criado'&&ch[0].d!==await snap(o))errs.push(id+': dados do pedido (itens, valores ou cliente) foram alterados depois de criado');
       if(o&&(o.lastHash!==prev||o.status!==ch[ch.length-1].to))errs.push(id+': status atual não confere com o histórico')}
-    $('#rs').innerHTML=errs.length?`<p class="bad" role="alert">${errs.length} problema(s) encontrado(s):</p><ul>${errs.map(x=>`<li class="bad">${E(x)}</li>`).join('')}</ul>`:`<p class="ok">Íntegro: ${A.length} registros de ${ids.length} pedidos, todos encadeados e sem alterações.</p>`};
+    $('#rs').innerHTML=errs.length?`<p class="bad" role="alert">${errs.length} problema(s) encontrado(s):</p><ul>${errs.map(x=>`<li class="bad">${E(x)}</li>`).join('')}</ul>`:`<p class="ok">Íntegro: ${A.filter(a=>a.hash&&Number.isInteger(a.n)).length} registros encadeados de ${ids.length} pedidos, sem alterações detectadas. Confirmações do Mercado Pago permanecem no histórico, mas são verificadas separadamente.</p>`};
   $('#ex').onclick=()=>{const q=v=>'"'+String(v).replace(/"/g,'""')+'"';const csv=['ts,pedido,n,acao,de,para,detalhe,autor,hash_anterior,hash'].concat(A.slice().sort((a,b)=>a.ts.localeCompare(b.ts)).map(a=>[a.ts,a.orderId,a.n,a.action,a.from,a.to,a.d,a.actor,a.prev,a.hash].map(q).join(','))).join('\n');
     const u=URL.createObjectURL(new Blob([csv],{type:'text/csv'})),l=document.createElement('a');l.href=u;l.download='auditoria.csv';l.click();URL.revokeObjectURL(u)};
 }
