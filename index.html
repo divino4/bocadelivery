@@ -254,6 +254,8 @@ function route(){clear();stopBell();onData=function(){};nav();const h=location.h
   if(!actor)return login();
   return h==='#gestor'?gestor():auditoria()}
 addEventListener('hashchange',route);
+// Ao voltar para uma página restaurada pelo navegador, revalida a sessão antes de mostrar o painel.
+addEventListener('pageshow',e=>{if(e.persisted){actor=SS.boca2_actor||null;route()}});
 function login(){
   const t=S.mode==='teste';
   app.innerHTML=`<div class="hero"><h1>Acesso do gestor</h1></div>${t?'<p class="note">Modo teste: use o PIN 1234. Em produção o login é por e-mail e senha do Firebase.</p>':''}
