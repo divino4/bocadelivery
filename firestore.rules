@@ -22,13 +22,15 @@ service cloud.firestore {
     match /couriers/{id} { allow read, write: if gestor(); }
 
     match /orders/{id} {
-      allow get: if true;            // acompanhamento pelo ID do pedido
+      allow get: if gestor() || (request.auth != null && resource.data.ownerUid == request.auth.uid); // somente gestor ou dono
       allow list: if gestor();       // só o gestor lista todos
       allow update, delete: if gestor();
       allow create: if gestor() || validNewOrder(request.resource.data, id);
 
       function validNewOrder(d, id) {
-        return d.id == id
+        return request.auth != null
+          && d.ownerUid == request.auth.uid
+          && d.id == id
           && d.status == 'novo'
           && d.pago == false
           && d.n == 0
@@ -48,8 +50,8 @@ service cloud.firestore {
     match /audit/{aid} {
       allow read: if gestor();
       allow update, delete: if false;
-      allow create: if gestor() || (
-        request.resource.data.action == 'pedido_criado'
+      allow create: if gestor() || (request.auth != null
+        && request.resource.data.action == 'pedido_criado'
         && request.resource.data.n == 0
         && request.resource.data.prev == '0'
         && request.resource.data.actor == 'cliente'
