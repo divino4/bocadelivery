@@ -181,13 +181,10 @@ const demo={
 };
 // ---------- Armazenamento: Firebase ----------
 async function fbStore(cfg){
-  // 1) cópia do Firebase hospedada no próprio site; 2) se faltar, tenta o servidor do Google
-  let M;try{M=await import('./firebase-bundle.js')}catch(e1){console.warn('bundle local falhou, tentando gstatic',e1);
-    const B='https://www.gstatic.com/firebasejs/10.12.2/',a=await import(B+'firebase-app.js'),f=await import(B+'firebase-firestore.js'),u=await import(B+'firebase-auth.js'),fn=await import(B+'firebase-functions.js');M=Object.assign({},a,f,u,fn)}
-  const initializeApp=M.initializeApp,F=M,A=M;
+  // Usa os módulos oficiais na mesma versão para Firestore e autenticação anônima.
+  const B='https://www.gstatic.com/firebasejs/10.12.2/',a=await import(B+'firebase-app.js'),f=await import(B+'firebase-firestore.js'),u=await import(B+'firebase-auth.js'),fn=await import(B+'firebase-functions.js');
+  const M=Object.assign({},a,f,u,fn),initializeApp=M.initializeApp,F=M,A=M;
   const app=initializeApp(cfg),db=F.getFirestore(app),au=A.getAuth(app);
-  // O bundle local não exporta signInAnonymously; usa a mesma versão oficial do Firebase Auth.
-  const authApi=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js');
 
   const clean=o=>JSON.parse(JSON.stringify(o));
   return{mode:'firebase',
@@ -201,7 +198,7 @@ async createPixPayment(orderId,email){
   if(!r.ok)throw new Error(data.error||'Não foi possível gerar o Pix.');
   return data;
 },
-    async ensureClientAuth(){if(!au.currentUser)await authApi.signInAnonymously(au);if(!au.currentUser)throw new Error('Não foi possível identificar este cliente.');return au.currentUser.uid},
+    async ensureClientAuth(){if(!au.currentUser)await A.signInAnonymously(au);if(!au.currentUser)throw new Error('Não foi possível identificar este cliente.');return au.currentUser.uid},
     col:(c,cb)=>F.onSnapshot(F.collection(db,c),s=>cb(s.docs.map(d=>d.data())),e=>console.warn(c,e.message)),
     doc:(c,id,cb)=>F.onSnapshot(F.doc(db,c,id),s=>cb(s.data()),e=>console.warn(c,e.message)),
     async get(c,id){try{return (await F.getDoc(F.doc(db,c,id))).data()}catch(e){return undefined}},
