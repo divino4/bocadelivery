@@ -602,8 +602,9 @@ function config(tc){
 // ================= AUDITORIA =================
 const AL={pedido_criado:'Pedido criado',status_alterado:'Status alterado',pedido_cancelado:'Pedido cancelado',pagamento_confirmado:'Pagamento confirmado',pagamento_desfeito:'Pagamento desfeito',entregador_atribuido:'Entregador atribuído'};
 function auditoria(){
-  app.innerHTML=`<section class="hero"><h1>Auditoria</h1><p>Cada ação gera um registro com data, autor e um código (hash SHA-256) ligado ao registro anterior do mesmo pedido. Se alguém alterar ou apagar algo, a verificação aponta.</p></section>
+  app.innerHTML=`<section class="hero"><h1>Auditoria</h1><p>Logado como ${E(actor)}. <a href="#" id="out">Sair</a></p><p>Cada ação gera um registro com data, autor e um código (hash SHA-256) ligado ao registro anterior do mesmo pedido. Se alguém alterar ou apagar algo, a verificação aponta.</p></section>
   <p><button class="btn" id="vf">Verificar integridade</button> <button class="btn ghost" id="ex">Exportar CSV</button></p><div id="rs"></div><div class="wrap"><table class="tbl"><thead><tr><th>Data/hora</th><th>Pedido</th><th>Ação</th><th>Detalhe</th><th>Autor</th><th>Hash</th></tr></thead><tbody id="tb"></tbody></table></div>`;
+  $('#out').onclick=e=>{e.preventDefault();delete SS.boca2_actor;actor=null;route()};
   watchOrders();let A=[],O=[];
   const det=a=>a.action==='entregador_atribuido'?E(a.d):(a.action==='status_alterado'||a.action==='pedido_cancelado'||a.action==='pedido_criado')?E(LBL[a.from]||'—')+' → '+E(LBL[a.to]||'—'):'pedido: '+E(LBL[a.to]||'—');
   const draw=()=>{$('#tb').innerHTML=A.slice().sort((a,b)=>b.ts.localeCompare(a.ts)).map(a=>`<tr><td>${new Date(a.ts).toLocaleString('pt-BR')}</td><td>${E(a.orderId)}</td><td>${E(AL[a.action]||a.action)}</td><td>${det(a)}</td><td>${E(a.actor)}</td><td><code>${a.hash.slice(0,16)}…</code></td></tr>`).join('')};
