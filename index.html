@@ -321,7 +321,7 @@ function cliente(){
     <label style="display:grid;gap:4px;font-size:14px;color:var(--mut)">Observação<input id="ob" placeholder="Ex.: sem cebola" style="padding:10px;border:1.5px solid var(--line);border-radius:8px;font:inherit"></label>
     <div class="mf"><div class="qty"><button type="button" id="mn" aria-label="Menos">−</button><output id="mq">1</output><button type="button" id="pl" aria-label="Mais">+</button></div><button class="btn" id="ad"></button></div><button class="btn ghost sm" id="cl">Fechar</button></div></div>`;
     const sel=()=>$$('.ck input',d).filter(x=>x.checked).map(x=>ex[+x.dataset.i]),unit=()=>m.preco+sel().reduce((s,x)=>s+x.p,0),up=()=>{$('#mq').textContent=q;$('#ad').textContent='Adicionar · '+R(q*unit())};up();
-    d.onchange=up;$('#mn').onclick=()=>{q=Math.max(1,q-1);up()};$('#pl').onclick=()=>{q++;up()};$('#cl').onclick=()=>{d.innerHTML=''};
+    d.addEventListener('change',e=>{if(e.target&&e.target.matches('.ck input'))up()});$('#mn').onclick=()=>{q=Math.max(1,q-1);up()};$('#pl').onclick=()=>{q++;up()};$('#cl').onclick=()=>{d.innerHTML=''};
     $('#ad').onclick=()=>{const es=sel().map(x=>x.n),ob=$('#ob').value.trim(),key=m.id+'|'+es.join(',')+'|'+ob,ln=cart.filter(l=>l.key===key)[0];
       if(ln)ln.qtd+=q;else cart.push({key:key,id:m.id,nome:m.nome,extras:es,obs:ob,qtd:q,preco:unit()});d.innerHTML='';drawCart()};
   }
