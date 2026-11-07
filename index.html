@@ -186,6 +186,8 @@ async function fbStore(cfg){
     const B='https://www.gstatic.com/firebasejs/10.12.2/',a=await import(B+'firebase-app.js'),f=await import(B+'firebase-firestore.js'),u=await import(B+'firebase-auth.js'),fn=await import(B+'firebase-functions.js');M=Object.assign({},a,f,u,fn)}
   const initializeApp=M.initializeApp,F=M,A=M;
   const app=initializeApp(cfg),db=F.getFirestore(app),au=A.getAuth(app);
+  // O bundle local não exporta signInAnonymously; usa a mesma versão oficial do Firebase Auth.
+  const authApi=await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js');
 
   const clean=o=>JSON.parse(JSON.stringify(o));
   return{mode:'firebase',
@@ -199,6 +201,7 @@ async createPixPayment(orderId,email){
   if(!r.ok)throw new Error(data.error||'Não foi possível gerar o Pix.');
   return data;
 },
+    async ensureClientAuth(){if(!au.currentUser)await authApi.signInAnonymously(au);if(!au.currentUser)throw new Error('Não foi possível identificar este cliente.');return au.currentUser.uid},
     col:(c,cb)=>F.onSnapshot(F.collection(db,c),s=>cb(s.docs.map(d=>d.data())),e=>console.warn(c,e.message)),
     doc:(c,id,cb)=>F.onSnapshot(F.doc(db,c,id),s=>cb(s.data()),e=>console.warn(c,e.message)),
     async get(c,id){try{return (await F.getDoc(F.doc(db,c,id))).data()}catch(e){return undefined}},
@@ -344,7 +347,7 @@ function cliente(){
     const o={id:rid('B'),status:'novo',criado:new Date().toISOString(),nome:f.nome.value.trim(),tel:f.tel.value.replace(/\D/g,''),
       tipo:c.ret?'retirada':'entrega',cidade:c.ret?'':f.cidade.value,regiao:c.rg?c.rg.nome:'',end:c.ret?'':f.end.value.trim(),pag:f.pag.value,troco:f.pag.value==='Dinheiro'?f.troco.value.trim():'',obs:f.obs.value.trim(),
       itens:cart.map(l=>({produtoId:l.id,nome:l.nome,qtd:l.qtd,preco:l.preco,extras:l.extras,obs:l.obs})),subtotal:c.sub,desconto:c.desc,cupom:cupom?cupom.id:'',taxa:c.taxa,total:c.total,pago:false,courier:'',eta:c.eta};
-    try{await S.add(o);LS.boca2_last=o.id;LS.boca2_cli=JSON.stringify({nome:o.nome,tel:o.tel,end:o.end,cidade:o.cidade,email:f.email.value.trim()});
+    try{if(S.ensureClientAuth)o.ownerUid=await S.ensureClientAuth();await S.add(o);LS.boca2_last=o.id;LS.boca2_cli=JSON.stringify({nome:o.nome,tel:o.tel,end:o.end,cidade:o.cidade,email:f.email.value.trim()});
       if(o.pag==='Pix'){if(!S.createPixPayment)throw new Error('Integração Pix ainda não implantada no Firebase.');await S.createPixPayment(o.id,f.email.value.trim())}
       cart=[];cupom=null;f.cupom.value='';$('#cmsg').textContent='';f.obs.value='';$('#co').hidden=true;drawCart();window.scrollTo(0,0);track()}
     catch(x){alert(x&&x.message&&x.message.includes('Integração Pix')?'O pedido foi registrado, mas o Pix ainda não está configurado. Entre em contato com a loja.':'O pedido foi registrado, mas não foi possível gerar o Pix. Tente novamente ou fale com a loja.');console.error(x);LS.boca2_last=o.id;track()}drawCart()};
