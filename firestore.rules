@@ -2,29 +2,36 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // TROQUE pelos e-mails dos gestores (os mesmos criados em Authentication)
     function gestor() {
       return request.auth != null
         && request.auth.token.email_verified == true
-        && request.auth.token.email in ['SEU_EMAIL@exemplo.com'];
+        && request.auth.token.email in ['zhenburger@gmail.com'];
     }
 
-    // Cardápio e configurações da loja: todos leem, só o gestor altera
-    match /menu/{id}  { allow read: if true; allow write: if gestor(); }
-    match /cfg/{id}   { allow read: if true; allow write: if gestor(); }
+    match /menu/{id} {
+      allow read: if true;
+      allow write: if gestor();
+    }
 
-    // Cupons: cliente consulta um código por vez, mas não lista todos
+    match /cfg/{id} {
+      allow read: if true;
+      allow write: if gestor();
+    }
+
     match /cupons/{id} {
       allow get: if true;
       allow list, write: if gestor();
     }
 
-    match /couriers/{id} { allow read, write: if gestor(); }
+    match /couriers/{id} {
+      allow read, write: if gestor();
+    }
 
     match /orders/{id} {
-      allow get: if gestor() || (request.auth != null && resource.data.ownerUid == request.auth.uid); // somente gestor ou dono
-      allow list: if gestor();       // só o gestor lista todos
+      allow get: if gestor() || (request.auth != null && resource.data.ownerUid == request.auth.uid);
+      allow list: if gestor();
       allow update, delete: if gestor();
+
       allow create: if gestor() || validNewOrder(request.resource.data, id);
 
       function validNewOrder(d, id) {
@@ -46,11 +53,12 @@ service cloud.firestore {
       }
     }
 
-    // Auditoria: só criação, nunca altera nem apaga
     match /audit/{aid} {
       allow read: if gestor();
       allow update, delete: if false;
-      allow create: if gestor() || (request.auth != null
+
+      allow create: if gestor() || (
+        request.auth != null
         && request.resource.data.action == 'pedido_criado'
         && request.resource.data.n == 0
         && request.resource.data.prev == '0'
