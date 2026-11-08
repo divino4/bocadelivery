@@ -360,7 +360,7 @@ function cliente(){
         star.onclick=function(){
           const field=star.dataset.field,value=Number(star.dataset.value);
           form.elements[field].value=String(value);
-          $('.ratingStar[data-field="'+field+'"]',form).forEach(function(item){
+          $(' .ratingStar[data-field="'+field+'"]',form).forEach(function(item){
             item.style.color=Number(item.dataset.value)<=value?'#f5a623':'#aaa';
           });
         };
