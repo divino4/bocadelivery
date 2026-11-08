@@ -199,6 +199,33 @@ async createPixPayment(orderId,email){
   return data;
 },
     async ensureClientAuth(){if(!au.currentUser)await A.signInAnonymously(au);if(!au.currentUser)throw new Error('Não foi possível identificar este cliente.');return au.currentUser.uid},
+    clientUser:()=>au.currentUser,
+    async registerClient(name,email,password){
+      const cleanEmail=String(email||'').trim().toLowerCase();
+      if(String(name||'').trim().length<2)throw new Error('Informe seu nome completo.');
+      if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(cleanEmail))throw new Error('Informe um e-mail válido.');
+      if(String(password||'').length<8)throw new Error('A senha precisa ter pelo menos 8 caracteres.');
+      const credential=A.EmailAuthProvider.credential(cleanEmail,password);
+      let user=au.currentUser;
+      if(user&&user.isAnonymous){
+        const linked=await A.linkWithCredential(user,credential);
+        user=linked.user;
+      }else{
+        const created=await A.createUserWithEmailAndPassword(au,cleanEmail,password);
+        user=created.user;
+      }
+      await A.updateProfile(user,{displayName:String(name).trim().slice(0,80)});
+      await F.setDoc(F.doc(db,'customers',user.uid),{
+        uid:user.uid,nome:String(name).trim().slice(0,80),email:cleanEmail,
+        criadoEm:new Date().toISOString(),atualizadoEm:new Date().toISOString()
+      },{merge:true});
+      return user;
+    },
+    async loginClient(email,password){
+      const result=await A.signInWithEmailAndPassword(au,String(email||'').trim().toLowerCase(),password);
+      return result.user;
+    },
+    async logoutClient(){await A.signOut(au)},
     col:(c,cb)=>F.onSnapshot(F.collection(db,c),s=>cb(s.docs.map(d=>d.data())),e=>console.warn(c,e.message)),
     doc:(c,id,cb)=>F.onSnapshot(F.doc(db,c,id),s=>cb(s.data()),e=>console.warn(c,e.message)),
     async get(c,id){try{return (await F.getDoc(F.doc(db,c,id))).data()}catch(e){return undefined}},
@@ -266,7 +293,9 @@ function login(){
 // ================= CLIENTE =================
 function cliente(){
   const saved=(()=>{try{return JSON.parse(LS.boca2_cli||'{}')}catch(e){return{}}})();
-  app.innerHTML=`<div id="top"></div><div id="track"></div><div id="menu"></div>
+  app.innerHTML=`<div id="top"></div>
+  <section class="f" id="accountBox"><h2 style="margin:0">Minha conta</h2><p id="accountStatus" style="margin:0;color:var(--mut)">Cadastre-se para participar do programa de fidelidade.</p><div class="grid2"><button type="button" class="btn sm" id="showRegister">Criar cadastro</button><button type="button" class="btn sm alt" id="showLogin">Já tenho cadastro</button></div><form id="accountForm" style="display:none;gap:8px"><label id="accountNameWrap">Nome completo<input id="accountName" autocomplete="name" maxlength="80"></label><label>E-mail<input id="accountEmail" type="email" autocomplete="email" required></label><label>Senha<input id="accountPassword" type="password" autocomplete="new-password" minlength="8" required></label><p id="accountError" class="bad" role="alert" style="margin:0"></p><button class="btn" id="accountSubmit">Criar minha conta</button><button type="button" class="btn ghost sm" id="accountCancel">Cancelar</button></form><button type="button" class="btn ghost sm" id="accountLogout" hidden>Sair da conta</button></section>
+  <div id="track"></div><div id="menu"></div>
   <form class="f" id="co" hidden><h2 style="margin-top:0">Seu pedido</h2><div id="lines"></div>
    <div class="seg"><label><input type="radio" name="tipo" value="entrega" checked> Entrega</label><label id="lret"><input type="radio" name="tipo" value="retirada"> Retirar no balcão</label></div>
    <label>Nome<input name="nome" required autocomplete="name"></label>
@@ -281,6 +310,35 @@ function cliente(){
   <div id="dlg"></div><div class="bar" id="bar" hidden><span id="bt"></span><button class="btn" id="go" style="background:var(--hi);color:var(--ink)">Ver pedido</button></div>`;
   const f=$('#co').elements;
   ['nome','tel','end','email'].forEach(k=>{if(saved[k])f[k].value=saved[k]});
+  const accountUser=S.clientUser?S.clientUser():null;
+  const accountForm=$('#accountForm'),accountName=$('#accountName'),accountEmail=$('#accountEmail'),accountPassword=$('#accountPassword');
+  const showAccountForm=mode=>{
+    accountForm.style.display='grid';$('#accountNameWrap').hidden=mode==='login';
+    accountName.required=mode==='register';accountPassword.autocomplete=mode==='login'?'current-password':'new-password';
+    $('#accountSubmit').textContent=mode==='login'?'Entrar':'Criar minha conta';
+    $('#accountError').textContent='';accountForm.dataset.mode=mode;
+  };
+  const refreshAccount=()=>{
+    const u=S.clientUser?S.clientUser():null;
+    if(u&&!u.isAnonymous){$('#accountStatus').textContent='Conta conectada: '+(u.email||'');$('#showRegister').hidden=true;$('#showLogin').hidden=true;$('#accountForm').style.display='none';$('#accountLogout').hidden=false}
+    else{$('#accountStatus').textContent='Cadastre-se para participar do programa de fidelidade.';$('#showRegister').hidden=false;$('#showLogin').hidden=false;$('#accountLogout').hidden=true}
+  };
+  $('#showRegister').onclick=()=>showAccountForm('register');$('#showLogin').onclick=()=>showAccountForm('login');
+  $('#accountCancel').onclick=()=>{accountForm.style.display='none';$('#accountError').textContent=''};
+  accountForm.onsubmit=async e=>{
+    e.preventDefault();const btn=$('#accountSubmit');btn.disabled=true;$('#accountError').textContent='';
+    try{
+      if(accountForm.dataset.mode==='login')await S.loginClient(accountEmail.value,accountPassword.value);
+      else await S.registerClient(accountName.value,accountEmail.value,accountPassword.value);
+      accountPassword.value='';accountForm.style.display='none';refreshAccount();
+      $('#accountStatus').textContent='Conta conectada: '+(S.clientUser().email||'')+'. Seu cadastro está ativo.';
+    }catch(err){
+      const code=err&&err.code||'';
+      $('#accountError').textContent=code==='auth/email-already-in-use'?'Este e-mail já possui cadastro. Use “Já tenho cadastro”.':code==='auth/weak-password'?'A senha precisa ter pelo menos 8 caracteres.':code==='auth/invalid-credential'?'E-mail ou senha incorretos.':(err.message||'Não foi possível concluir o cadastro.');
+    }finally{btn.disabled=false}
+  };
+  $('#accountLogout').onclick=async()=>{try{await S.logoutClient();refreshAccount()}catch(e){alert('Não foi possível sair da conta.')}};
+  refreshAccount();
   const cents=x=>Math.round(x*100)/100;
   const calc=()=>{const sub=cents(cart.reduce((s,l)=>s+l.qtd*l.preco,0));let desc=0;
     if(cupom&&sub<(cupom.min||0)){cupom=null;$('#cmsg').textContent='Cupom removido: o pedido ficou abaixo do mínimo do cupom.'}
