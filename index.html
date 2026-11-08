@@ -334,19 +334,36 @@ function cliente(){
     await S.submitFeedback(data);
   };
   const drawHistory=(orders,error)=>{
-    if(orders)latestCustomerOrders=orders;
+    if(orders) latestCustomerOrders=orders;
     const box=$('#historyBox'),list=$('#historyList');
-    if(!orders){list.innerHTML='<p class="bad">Não foi possível carregar seu histórico. Atualize a página e tente novamente.</p>';return}
-    if(!orders.length){list.innerHTML='<p style="margin:0;color:var(--mut)">Ainda não há pedidos vinculados a esta conta.</p>';return}
-    list.innerHTML=orders.map(o=>{
-      const rated=customerFeedback.some(x=>x.orderId===o.id);
+    if(!orders){list.innerHTML='<p class="bad">Não foi possível carregar seu histórico. Atualize a página e tente novamente.</p>';return;}
+    if(!orders.length){list.innerHTML='<p style="margin:0;color:var(--mut)">Ainda não há pedidos vinculados a esta conta.</p>';return;}
+    let html='';
+    orders.forEach(function(o){
+      const rated=customerFeedback.some(function(x){return x.orderId===o.id;});
       let ratingHtml='';
       if(o.status==='entregue'){
-        if(rated) ratingHtml='<p class="ok">Avaliação enviada. Obrigado!</p>';
-        else ratingHtml='<form class="ratingForm" data-order="'+E(o.id)+'" style="display:grid;gap:8px;margin-top:12px"><b>Avalie seu pedido</b><label>Qualidade dos produtos<select name="qualidade" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Agilidade da entrega<select name="entrega" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Atendimento da loja<select name="atendimento" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Comentário (opcional)<textarea name="comentario" maxlength="500" rows="2" placeholder="Conte como foi sua experiência"></textarea></label><p class="bad ratingError" role="alert"></p><button class="btn sm">Enviar avaliação</button></form>';
-      return `<div class="track" style="margin:10px 0"><b>Pedido ${E(o.id)} · ${E(L(o.status,o.tipo))}</b><div>${o.criado?new Date(o.criado).toLocaleString('pt-BR'):''}</div><div>${(o.itens||[]).map(l=>(+l.qtd||0)+'× '+E(l.nome)).join(', ')}</div><div><b>${R(o.total||0)}</b> · ${o.pago?'Pagamento confirmado':'Pagamento pendente'} · ${o.tipo==='retirada'?'Retirada':'Entrega'}</div>${ratingHtml}</div>`;
-    }).join('');
-    $('.ratingForm',list).forEach(form=>form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('button');btn.disabled=true;form.querySelector('.ratingError').textContent='';try{const order=orders.find(o=>o.id===form.dataset.order);await submitRating(order,form)}catch(err){form.querySelector('.ratingError').textContent=err.message||'Não foi possível enviar a avaliação.';btn.disabled=false}});
+        if(rated){ratingHtml='<p class="ok">Avaliação enviada. Obrigado!</p>';}
+        else{ratingHtml='<form class="ratingForm" data-order="'+E(o.id)+'" style="display:grid;gap:8px;margin-top:12px"><b>Avalie seu pedido</b><label>Qualidade dos produtos<select name="qualidade" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Agilidade da entrega<select name="entrega" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Atendimento da loja<select name="atendimento" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Comentário (opcional)<textarea name="comentario" maxlength="500" rows="2" placeholder="Conte como foi sua experiência"></textarea></label><p class="bad ratingError" role="alert"></p><button class="btn sm">Enviar avaliação</button></form>';}
+      }
+      html+='<div class="track" style="margin:10px 0"><b>Pedido '+E(o.id)+' · '+E(L(o.status,o.tipo))+'</b><div>'+(o.criado?new Date(o.criado).toLocaleString('pt-BR'):'')+'</div><div>'+(o.itens||[]).map(function(l){return (+l.qtd||0)+'× '+E(l.nome);}).join(', ')+'</div><div><b>'+R(o.total||0)+'</b> · '+(o.pago?'Pagamento confirmado':'Pagamento pendente')+' · '+(o.tipo==='retirada'?'Retirada':'Entrega')+'</div>'+ratingHtml+'</div>';
+    });
+    list.innerHTML=html;
+    const forms=$('.ratingForm',list);
+    forms.forEach(function(form){
+      form.onsubmit=async function(e){
+        e.preventDefault();
+        const btn=form.querySelector('button');btn.disabled=true;
+        form.querySelector('.ratingError').textContent='';
+        try{
+          const order=orders.find(function(o){return o.id===form.dataset.order;});
+          await submitRating(order,form);
+        }catch(err){
+          form.querySelector('.ratingError').textContent=err.message||'Não foi possível enviar a avaliação.';
+          btn.disabled=false;
+        }
+      };
+    });
   };
   const refreshHistory=()=>{
     if(historyUnsub){historyUnsub();historyUnsub=null}if(feedbackUnsub){feedbackUnsub();feedbackUnsub=null}customerFeedback=[];
