@@ -330,7 +330,7 @@ function cliente(){
   let feedbackUnsub=null,customerFeedback=[],latestCustomerOrders=[];
   const submitRating=async(order,form)=>{
     const data={id:order.id,orderId:order.id,uid:S.clientUser().uid,qualidade:Number(form.elements.qualidade.value),entrega:Number(form.elements.entrega.value),atendimento:Number(form.elements.atendimento.value),comentario:String(form.elements.comentario.value||'').trim().slice(0,500),criadoEm:new Date().toISOString()};
-    if(!data.qualidade||!data.entrega||!data.atendimento)throw new Error('Escolha uma nota para os três itens.');
+    if(!data.qualidade||!data.entrega||!data.atendimento)throw new Error('Toque nas estrelas para avaliar os três itens.');
     await S.submitFeedback(data);
   };
   const drawHistory=(orders,error)=>{
@@ -338,22 +338,36 @@ function cliente(){
     const box=$('#historyBox'),list=$('#historyList');
     if(!orders){list.innerHTML='<p class="bad">Não foi possível carregar seu histórico. Atualize a página e tente novamente.</p>';return;}
     if(!orders.length){list.innerHTML='<p style="margin:0;color:var(--mut)">Ainda não há pedidos vinculados a esta conta.</p>';return;}
+    const starField=function(name,label){
+      let stars='<div style="display:flex;align-items:center;gap:5px;margin-top:5px">';
+      for(let n=1;n<=5;n++) stars+='<button type="button" class="ratingStar" data-field="'+name+'" data-value="'+n+'" aria-label="'+n+' estrelas" style="border:0;background:transparent;padding:2px;font-size:30px;line-height:1;cursor:pointer;color:#aaa">★</button>';
+      return '<div><span>'+label+'</span><input type="hidden" name="'+name+'" value="" required>'+stars+'</div>';
+    };
     let html='';
     orders.forEach(function(o){
       const rated=customerFeedback.some(function(x){return x.orderId===o.id;});
       let ratingHtml='';
       if(o.status==='entregue'){
         if(rated){ratingHtml='<p class="ok">Avaliação enviada. Obrigado!</p>';}
-        else{ratingHtml='<form class="ratingForm" data-order="'+E(o.id)+'" style="display:grid;gap:8px;margin-top:12px"><b>Avalie seu pedido</b><label>Qualidade dos produtos<select name="qualidade" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Agilidade da entrega<select name="entrega" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Atendimento da loja<select name="atendimento" required><option value="">Escolha uma nota</option><option value="5">5 - Excelente</option><option value="4">4 - Muito bom</option><option value="3">3 - Bom</option><option value="2">2 - Regular</option><option value="1">1 - Ruim</option></select></label><label>Comentário (opcional)<textarea name="comentario" maxlength="500" rows="2" placeholder="Conte como foi sua experiência"></textarea></label><p class="bad ratingError" role="alert"></p><button class="btn sm">Enviar avaliação</button></form>';}
+        else{ratingHtml='<form class="ratingForm" data-order="'+E(o.id)+'" style="display:grid;gap:12px;margin-top:12px"><b>Avalie seu pedido</b>'+starField('qualidade','Qualidade dos produtos')+starField('entrega','Agilidade da entrega')+starField('atendimento','Atendimento da loja')+'<label>Comentário (opcional)<textarea name="comentario" maxlength="500" rows="2" placeholder="Conte como foi sua experiência"></textarea></label><p class="bad ratingError" role="alert"></p><button class="btn sm">Enviar avaliação</button></form>';}
       }
       html+='<div class="track" style="margin:10px 0"><b>Pedido '+E(o.id)+' · '+E(L(o.status,o.tipo))+'</b><div>'+(o.criado?new Date(o.criado).toLocaleString('pt-BR'):'')+'</div><div>'+(o.itens||[]).map(function(l){return (+l.qtd||0)+'× '+E(l.nome);}).join(', ')+'</div><div><b>'+R(o.total||0)+'</b> · '+(o.pago?'Pagamento confirmado':'Pagamento pendente')+' · '+(o.tipo==='retirada'?'Retirada':'Entrega')+'</div>'+ratingHtml+'</div>';
     });
     list.innerHTML=html;
     const forms=$('.ratingForm',list);
     forms.forEach(function(form){
+      $('.ratingStar',form).forEach(function(star){
+        star.onclick=function(){
+          const field=star.dataset.field,value=Number(star.dataset.value);
+          form.elements[field].value=String(value);
+          $('.ratingStar[data-field="'+field+'"]',form).forEach(function(item){
+            item.style.color=Number(item.dataset.value)<=value?'#f5a623':'#aaa';
+          });
+        };
+      });
       form.onsubmit=async function(e){
         e.preventDefault();
-        const btn=form.querySelector('button');btn.disabled=true;
+        const btn=form.querySelector('button.btn');btn.disabled=true;
         form.querySelector('.ratingError').textContent='';
         try{
           const order=orders.find(function(o){return o.id===form.dataset.order;});
