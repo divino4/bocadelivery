@@ -77,6 +77,28 @@ service cloud.firestore {
       }
     }
 
+    match /feedback/{orderId} {
+      allow get: if gestor() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow list: if gestor() || (request.auth != null && resource.data.uid == request.auth.uid);
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['id', 'orderId', 'uid', 'qualidade', 'entrega', 'atendimento', 'comentario', 'criadoEm'])
+        && request.resource.data.id == orderId
+        && request.resource.data.orderId == orderId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.qualidade is int
+        && request.resource.data.qualidade >= 1 && request.resource.data.qualidade <= 5
+        && request.resource.data.entrega is int
+        && request.resource.data.entrega >= 1 && request.resource.data.entrega <= 5
+        && request.resource.data.atendimento is int
+        && request.resource.data.atendimento >= 1 && request.resource.data.atendimento <= 5
+        && request.resource.data.comentario is string
+        && request.resource.data.comentario.size() <= 500
+        && exists(/databases/$(database)/documents/orders/$(orderId))
+        && get(/databases/$(database)/documents/orders/$(orderId)).data.ownerUid == request.auth.uid
+        && get(/databases/$(database)/documents/orders/$(orderId)).data.status == 'entregue';
+      allow update, delete: if gestor();
+    }
+
     match /audit/{aid} {
       allow read: if gestor();
       allow update, delete: if false;
