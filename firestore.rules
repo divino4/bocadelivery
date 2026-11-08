@@ -27,6 +27,30 @@ service cloud.firestore {
       allow read, write: if gestor();
     }
 
+    match /customers/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.uid == uid
+        && request.resource.data.keys().hasOnly(['uid', 'nome', 'email', 'criadoEm', 'atualizadoEm'])
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() >= 2
+        && request.resource.data.nome.size() <= 80
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254;
+      allow update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.criadoEm == resource.data.criadoEm
+        && request.resource.data.keys().hasOnly(['uid', 'nome', 'email', 'criadoEm', 'atualizadoEm'])
+        && request.resource.data.nome is string
+        && request.resource.data.nome.size() >= 2
+        && request.resource.data.nome.size() <= 80
+        && request.resource.data.email is string
+        && request.resource.data.email.size() <= 254;
+      allow delete: if false;
+    }
+
     match /orders/{id} {
       allow get: if gestor() || (request.auth != null && resource.data.ownerUid == request.auth.uid);
       allow list: if gestor();
