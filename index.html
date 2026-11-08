@@ -172,6 +172,7 @@ const demo={
   col(c,cb){return this.sub(()=>cb(this.g(c)))},
   doc(c,id,cb){return this.sub(()=>cb(this.g(c).find(x=>x.id===id)))},
   async get(c,id){return this.g(c).find(x=>x.id===id)},
+  clientOrders(uid,cb){return this.sub(()=>cb(this.g('orders').filter(o=>o.ownerUid===uid).sort((a,b)=>String(b.criado||'').localeCompare(String(a.criado||''))).slice(0,50)))},
   async put(c,o){const l=this.g(c),i=l.findIndex(x=>x.id===o.id);if(i<0)l.push(o);else l[i]=o;this.w(c,l)},
   async del(c,id){this.w(c,this.g(c).filter(x=>x.id!==id))},
   async add(o){const a=await entry(o,'pedido_criado','','novo','cliente',await snap(o));o.n=a.n;o.lastHash=a.hash;this.w('orders',this.g('orders').concat([o]));this.w('audit',this.g('audit').concat([a]))},
@@ -230,6 +231,7 @@ async createPixPayment(orderId,email){
     col:(c,cb)=>F.onSnapshot(F.collection(db,c),s=>cb(s.docs.map(d=>d.data())),e=>console.warn(c,e.message)),
     doc:(c,id,cb)=>F.onSnapshot(F.doc(db,c,id),s=>cb(s.data()),e=>console.warn(c,e.message)),
     async get(c,id){try{return (await F.getDoc(F.doc(db,c,id))).data()}catch(e){return undefined}},
+    clientOrders(uid,callback){const q=F.query(F.collection(db,'orders'),F.where('ownerUid','==',uid),F.limit(50));return F.onSnapshot(q,s=>callback(s.docs.map(d=>d.data()).sort((a,b)=>String(b.criado||'').localeCompare(String(a.criado||'')))),e=>{console.warn('histórico',e.message);callback(null,e)})},
     put:(c,o)=>F.setDoc(F.doc(db,c,o.id),clean(o)),
     del:(c,id)=>F.deleteDoc(F.doc(db,c,id)),
     async add(o){const a=await entry(o,'pedido_criado','','novo','cliente',await snap(o));o.n=a.n;o.lastHash=a.hash;const b=F.writeBatch(db);b.set(F.doc(db,'orders',o.id),clean(o));b.set(F.doc(db,'audit',o.id+'_'+a.n),a);await b.commit()},
@@ -296,6 +298,7 @@ function cliente(){
   const saved=(()=>{try{return JSON.parse(LS.boca2_cli||'{}')}catch(e){return{}}})();
   app.innerHTML=`<div id="top"></div>
   <section class="f" id="accountBox"><h2 style="margin:0">Minha conta</h2><p id="accountStatus" style="margin:0;color:var(--mut)">Cadastre-se para participar do programa de fidelidade.</p><div class="grid2"><button type="button" class="btn sm" id="showRegister">Criar cadastro</button><button type="button" class="btn sm alt" id="showLogin">Já tenho cadastro</button></div><form id="accountForm" style="display:none;gap:8px"><label id="accountNameWrap">Nome completo<input id="accountName" autocomplete="name" maxlength="80"></label><label>E-mail<input id="accountEmail" type="email" autocomplete="email" required></label><label>Senha<input id="accountPassword" type="password" autocomplete="new-password" minlength="8" required></label><p id="accountError" class="bad" role="alert" style="margin:0"></p><button class="btn" id="accountSubmit">Criar minha conta</button><button type="button" class="btn ghost sm" id="accountCancel">Cancelar</button></form><button type="button" class="btn ghost sm" id="accountLogout" hidden>Sair da conta</button></section>
+  <section class="f" id="historyBox" hidden><h2 style="margin:0">Meus pedidos</h2><div id="historyList"><p style="margin:0;color:var(--mut)">Entre na sua conta para consultar seus pedidos.</p></div></section>
   <div id="track"></div><div id="menu"></div>
   <form class="f" id="co" hidden><h2 style="margin-top:0">Seu pedido</h2><div id="lines"></div>
    <div class="seg"><label><input type="radio" name="tipo" value="entrega" checked> Entrega</label><label id="lret"><input type="radio" name="tipo" value="retirada"> Retirar no balcão</label></div>
@@ -319,6 +322,20 @@ function cliente(){
     $('#accountSubmit').textContent=mode==='login'?'Entrar':'Criar minha conta';
     $('#accountError').textContent='';accountForm.dataset.mode=mode;
   };
+  let historyUnsub=null;
+  const drawHistory=(orders,error)=>{
+    const box=$('#historyBox'),list=$('#historyList');
+    if(!orders){list.innerHTML='<p class="bad">Não foi possível carregar seu histórico. Atualize a página e tente novamente.</p>';return}
+    if(!orders.length){list.innerHTML='<p style="margin:0;color:var(--mut)">Ainda não há pedidos vinculados a esta conta.</p>';return}
+    list.innerHTML=orders.map(o=>`<div class="track" style="margin:10px 0"><b>Pedido ${E(o.id)} · ${E(L(o.status,o.tipo))}</b><div>${o.criado?new Date(o.criado).toLocaleString('pt-BR'):''}</div><div>${(o.itens||[]).map(l=>(+l.qtd||0)+'× '+E(l.nome)).join(', ')}</div><div><b>${R(o.total||0)}</b> · ${o.pago?'Pagamento confirmado':'Pagamento pendente'} · ${o.tipo==='retirada'?'Retirada':'Entrega'}</div></div>`).join('');
+  };
+  const refreshHistory=()=>{
+    if(historyUnsub){historyUnsub();historyUnsub=null}
+    const u=S.clientUser?S.clientUser():null,box=$('#historyBox');
+    if(!u||u.isAnonymous){box.hidden=true;return}
+    box.hidden=false;$('#historyList').innerHTML='<p style="margin:0;color:var(--mut)">Carregando seus pedidos...</p>';
+    if(S.clientOrders)historyUnsub=S.clientOrders(u.uid,drawHistory);else drawHistory([]);
+  };
   const refreshAccount=()=>{
     const u=S.clientUser?S.clientUser():null;
     if(u&&!u.isAnonymous){$('#accountStatus').textContent='Conta conectada: '+(u.email||'');$('#showRegister').hidden=true;$('#showLogin').hidden=true;$('#accountForm').style.display='none';$('#accountLogout').hidden=false}
@@ -339,7 +356,7 @@ function cliente(){
     }finally{btn.disabled=false}
   };
   $('#accountLogout').onclick=async()=>{try{await S.logoutClient();refreshAccount()}catch(e){alert('Não foi possível sair da conta.')}};
-  if(S.onClientAuthStateChanged)S.onClientAuthStateChanged(()=>refreshAccount());else refreshAccount();
+  if(S.onClientAuthStateChanged)S.onClientAuthStateChanged(()=>{refreshAccount();refreshHistory()});else{refreshAccount();refreshHistory()}
   const cents=x=>Math.round(x*100)/100;
   const calc=()=>{const sub=cents(cart.reduce((s,l)=>s+l.qtd*l.preco,0));let desc=0;
     if(cupom&&sub<(cupom.min||0)){cupom=null;$('#cmsg').textContent='Cupom removido: o pedido ficou abaixo do mínimo do cupom.'}
