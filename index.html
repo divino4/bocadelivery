@@ -354,20 +354,24 @@ function cliente(){
       html+='<div class="track" style="margin:10px 0"><b>Pedido '+E(o.id)+' · '+E(L(o.status,o.tipo))+'</b><div>'+(o.criado?new Date(o.criado).toLocaleString('pt-BR'):'')+'</div><div>'+(o.itens||[]).map(function(l){return (+l.qtd||0)+'× '+E(l.nome);}).join(', ')+'</div><div><b>'+R(o.total||0)+'</b> · '+(o.pago?'Pagamento confirmado':'Pagamento pendente')+' · '+(o.tipo==='retirada'?'Retirada':'Entrega')+'</div>'+ratingHtml+'</div>';
     });
     list.innerHTML=html;
-    const forms=$('.ratingForm',list);
+    const forms=Array.from(list.querySelectorAll('.ratingForm'));
     forms.forEach(function(form){
-      $('.ratingStar',form).forEach(function(star){
-        star.onclick=function(){
-          const field=star.dataset.field,value=Number(star.dataset.value);
-          form.elements[field].value=String(value);
-          $(' .ratingStar[data-field="'+field+'"]',form).forEach(function(item){
+      const stars=Array.from(form.querySelectorAll('.ratingStar'));
+      stars.forEach(function(star){
+        star.addEventListener('click',function(){
+          const field=star.dataset.field;
+          const value=Number(star.dataset.value);
+          const input=form.querySelector('input[name="'+field+'"]');
+          if(input) input.value=String(value);
+          stars.filter(function(item){return item.dataset.field===field;}).forEach(function(item){
             item.style.color=Number(item.dataset.value)<=value?'#f5a623':'#aaa';
           });
-        };
+        });
       });
       form.onsubmit=async function(e){
         e.preventDefault();
-        const btn=form.querySelector('button.btn');btn.disabled=true;
+        const btn=form.querySelector('button.btn');
+        btn.disabled=true;
         form.querySelector('.ratingError').textContent='';
         try{
           const order=orders.find(function(o){return o.id===form.dataset.order;});
@@ -378,6 +382,7 @@ function cliente(){
         }
       };
     });
+
   };
   const refreshHistory=()=>{
     if(historyUnsub){historyUnsub();historyUnsub=null}if(feedbackUnsub){feedbackUnsub();feedbackUnsub=null}customerFeedback=[];
