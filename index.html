@@ -327,13 +327,14 @@ function cliente(){
     $('#accountError').textContent='';accountForm.dataset.mode=mode;
   };
   let historyUnsub=null;
-  let feedbackUnsub=null,customerFeedback=[];
+  let feedbackUnsub=null,customerFeedback=[],latestCustomerOrders=[];
   const submitRating=async(order,form)=>{
     const data={id:order.id,orderId:order.id,uid:S.clientUser().uid,qualidade:Number(form.elements.qualidade.value),entrega:Number(form.elements.entrega.value),atendimento:Number(form.elements.atendimento.value),comentario:String(form.elements.comentario.value||'').trim().slice(0,500),criadoEm:new Date().toISOString()};
     if(!data.qualidade||!data.entrega||!data.atendimento)throw new Error('Escolha uma nota para os três itens.');
     await S.submitFeedback(data);
   };
   const drawHistory=(orders,error)=>{
+    if(orders)latestCustomerOrders=orders;
     const box=$('#historyBox'),list=$('#historyList');
     if(!orders){list.innerHTML='<p class="bad">Não foi possível carregar seu histórico. Atualize a página e tente novamente.</p>';return}
     if(!orders.length){list.innerHTML='<p style="margin:0;color:var(--mut)">Ainda não há pedidos vinculados a esta conta.</p>';return}
@@ -345,7 +346,7 @@ function cliente(){
     const u=S.clientUser?S.clientUser():null,box=$('#historyBox');
     if(!u||u.isAnonymous){box.hidden=true;return}
     box.hidden=false;$('#historyList').innerHTML='<p style="margin:0;color:var(--mut)">Carregando seus pedidos...</p>';
-    if(S.clientFeedback)feedbackUnsub=S.clientFeedback(u.uid,rows=>{customerFeedback=rows||[]});
+    if(S.clientFeedback)feedbackUnsub=S.clientFeedback(u.uid,rows=>{customerFeedback=rows||[];if(latestCustomerOrders.length)drawHistory(latestCustomerOrders)});
     if(S.clientOrders)historyUnsub=S.clientOrders(u.uid,drawHistory);else drawHistory([]);
   };
   const refreshAccount=()=>{
