@@ -200,6 +200,7 @@ async createPixPayment(orderId,email){
 },
     async ensureClientAuth(){if(!au.currentUser)await A.signInAnonymously(au);if(!au.currentUser)throw new Error('Não foi possível identificar este cliente.');return au.currentUser.uid},
     clientUser:()=>au.currentUser,
+    onClientAuthStateChanged(callback){return A.onAuthStateChanged(au,callback)},
     async registerClient(name,email,password){
       const cleanEmail=String(email||'').trim().toLowerCase();
       if(String(name||'').trim().length<2)throw new Error('Informe seu nome completo.');
@@ -338,7 +339,7 @@ function cliente(){
     }finally{btn.disabled=false}
   };
   $('#accountLogout').onclick=async()=>{try{await S.logoutClient();refreshAccount()}catch(e){alert('Não foi possível sair da conta.')}};
-  refreshAccount();
+  if(S.onClientAuthStateChanged)S.onClientAuthStateChanged(()=>refreshAccount());else refreshAccount();
   const cents=x=>Math.round(x*100)/100;
   const calc=()=>{const sub=cents(cart.reduce((s,l)=>s+l.qtd*l.preco,0));let desc=0;
     if(cupom&&sub<(cupom.min||0)){cupom=null;$('#cmsg').textContent='Cupom removido: o pedido ficou abaixo do mínimo do cupom.'}
