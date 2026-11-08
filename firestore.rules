@@ -53,7 +53,7 @@ service cloud.firestore {
 
     match /orders/{id} {
       allow get: if gestor() || (request.auth != null && resource.data.ownerUid == request.auth.uid);
-      allow list: if gestor();
+      allow list: if gestor() || (request.auth != null && resource.data.ownerUid == request.auth.uid);
       allow update, delete: if gestor();
 
       allow create: if gestor() || validNewOrder(request.resource.data, id);
