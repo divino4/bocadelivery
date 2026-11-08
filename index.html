@@ -514,7 +514,7 @@ function syncBell(n){
   bellStatus();
 }
 const watchOrders=()=>unsubs.push(S.col('orders',l=>syncBell(l.filter(o=>o.status==='novo').length)));
-const TABS=[['pedidos','Pedidos'],['cardapio','Cardápio'],['relatorio','Relatório do dia'],['clientes','Clientes'],['config','Configurações']];
+const TABS=[['pedidos','Pedidos'],['cardapio','Cardápio'],['relatorio','Relatório do dia'],['clientes','Clientes'],['feedback','Avaliações'],['config','Configurações']];
 function gestor(){
   app.innerHTML=`<section class="hero"><h1>Gestor</h1><p>Logado como ${E(actor)}. <a href="#" id="out">Sair</a></p></section>
   <div class="pendbar" id="pendbar" role="alert" hidden></div>
@@ -540,7 +540,7 @@ function gestor(){
   ph();$('#pa').onchange=e=>{LS.boca2_pa=e.target.checked?'1':'0';ph()};$('#pm').onchange=e=>{LS.boca2_pm=e.target.value;ph()};$('#pw').onchange=e=>{LS.boca2_pw=e.target.value};$('#pv').onchange=e=>{LS.boca2_pv=e.target.value};
   $('#pt').onclick=()=>{try{imprimir(Object.assign({},AMOSTRA,{criado:new Date().toISOString()}))}catch(e){alert('Não foi possível imprimir: '+e.message)}};
   watchOrders();bellStatus();
-  ({pedidos:pedidos,cardapio:cardapio,relatorio:relatorio,clientes:clientes,config:config})[tab]($('#tc'));
+  ({pedidos:pedidos,cardapio:cardapio,relatorio:relatorio,clientes:clientes,feedback:feedback,config:config})[tab]($('#tc'));
 }
 // ---------- Impressão do pedido (comanda) ----------
 const pcfg=()=>({auto:LS.boca2_pa!=='0',modo:LS.boca2_pm||'browser',larg:LS.boca2_pw||'80',vias:Math.min(3,Math.max(1,+LS.boca2_pv||1))});
@@ -692,6 +692,29 @@ function clientes(tc){
       return`<details class="row" style="display:block"><summary><b>${E(u.nome)}</b> · ${E(k)} · ${v.length} pedido(s) · ${R(v.reduce((s,o)=>s+o.total,0))}</summary><p style="margin:6px 0"><small>${u.tipo==='retirada'?'Retirada':E(u.cidade||u.bairro)+' · '+E(u.end)}</small></p>
       ${os.map(o=>`<div class="ln"><div>${new Date(o.criado).toLocaleDateString('pt-BR')} · ${E(o.id)}<small>${o.itens.map(l=>(+l.qtd||0)+'× '+E(l.nome)).join(', ')}</small></div><div>${R(o.total)}<small>${L(o.status,o.tipo)}</small></div></div>`).join('')}</details>`}).join('')||'<p class="note">Nenhum cliente encontrado.</p>'};
   $('#q').oninput=draw;unsubs.push(S.col('orders',l=>{all=l;draw()}));
+}
+// ----- Avaliações dos clientes -----
+function feedback(tc){
+  tc.innerHTML='<div id="fbSummary" class="grid2"></div><div id="fbList"></div>';
+  let rows=[],orders=[];
+  const draw=()=>{
+    const byId={};orders.forEach(o=>byId[o.id]=o);
+    const avg=k=>rows.length?(rows.reduce((n,x)=>n+(Number(x[k])||0),0)/rows.length).toFixed(1).replace('.',','):'—';
+    $('#fbSummary').innerHTML=`<div class="kpi">Avaliações recebidas<b>${rows.length}</b></div><div class="kpi">Qualidade média<b>${avg('qualidade')} / 5</b></div><div class="kpi">Agilidade média<b>${avg('entrega')} / 5</b></div><div class="kpi">Atendimento médio<b>${avg('atendimento')} / 5</b></div>`;
+    const sorted=rows.slice().sort((a,b)=>String(b.criadoEm||'').localeCompare(String(a.criadoEm||'')));
+    $('#fbList').innerHTML=sorted.map(x=>{
+      const o=byId[x.orderId||x.id]||{};
+      const stars=n=>'★'.repeat(Math.max(0,Math.min(5,Number(n)||0)))+'☆'.repeat(5-Math.max(0,Math.min(5,Number(n)||0)));
+      const date=x.criadoEm?new Date(x.criadoEm).toLocaleString('pt-BR'):'Data não informada';
+      return `<div class="row" style="display:block;margin-top:10px"><b>Pedido ${E(x.orderId||x.id||'—')}</b> · ${E(o.nome||'Cliente')}<small style="display:block;color:var(--mut)">${E(date)} · ${E(o.status||'')}</small>
+      <div style="margin-top:8px">Qualidade dos produtos: <b style="color:#d99a00">${stars(x.qualidade)}</b> (${Number(x.qualidade)||0}/5)</div>
+      <div>Agilidade da entrega: <b style="color:#d99a00">${stars(x.entrega)}</b> (${Number(x.entrega)||0}/5)</div>
+      <div>Atendimento da loja: <b style="color:#d99a00">${stars(x.atendimento)}</b> (${Number(x.atendimento)||0}/5)</div>
+      ${x.comentario?`<p style="margin:8px 0 0"><b>Comentário:</b> ${E(x.comentario)}</p>`:'<p class="note" style="margin:8px 0 0">Sem comentário.</p>'}</div>`;
+    }).join('')||'<p class="note">Ainda não há avaliações dos clientes.</p>';
+  };
+  unsubs.push(S.col('feedback',l=>{rows=l;draw()}));
+  unsubs.push(S.col('orders',l=>{orders=l;draw()}));
 }
 // ----- Configurações, entregadores e cupons -----
 function config(tc){
