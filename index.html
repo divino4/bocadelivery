@@ -514,7 +514,7 @@ function syncBell(n){
   bellStatus();
 }
 const watchOrders=()=>unsubs.push(S.col('orders',l=>syncBell(l.filter(o=>o.status==='novo').length)));
-const TABS=[['pedidos','Pedidos'],['cardapio','Cardápio'],['relatorio','Relatório do dia'],['clientes','Clientes'],['feedback','Avaliações'],['config','Configurações']];
+const TABS=[['pedidos','Pedidos'],['cardapio','Cardápio'],['relatorio','Relatório do dia'],['clientes','Clientes'],['feedback','Avaliações'],['fidelidade','Fidelidade'],['config','Configurações']];
 function gestor(){
   app.innerHTML=`<section class="hero"><h1>Gestor</h1><p>Logado como ${E(actor)}. <a href="#" id="out">Sair</a></p></section>
   <div class="pendbar" id="pendbar" role="alert" hidden></div>
@@ -540,7 +540,7 @@ function gestor(){
   ph();$('#pa').onchange=e=>{LS.boca2_pa=e.target.checked?'1':'0';ph()};$('#pm').onchange=e=>{LS.boca2_pm=e.target.value;ph()};$('#pw').onchange=e=>{LS.boca2_pw=e.target.value};$('#pv').onchange=e=>{LS.boca2_pv=e.target.value};
   $('#pt').onclick=()=>{try{imprimir(Object.assign({},AMOSTRA,{criado:new Date().toISOString()}))}catch(e){alert('Não foi possível imprimir: '+e.message)}};
   watchOrders();bellStatus();
-  ({pedidos:pedidos,cardapio:cardapio,relatorio:relatorio,clientes:clientes,feedback:feedback,config:config})[tab]($('#tc'));
+  ({pedidos:pedidos,cardapio:cardapio,relatorio:relatorio,clientes:clientes,feedback:feedback,fidelidade:fidelidade,config:config})[tab]($('#tc'));
 }
 // ---------- Impressão do pedido (comanda) ----------
 const pcfg=()=>({auto:LS.boca2_pa!=='0',modo:LS.boca2_pm||'browser',larg:LS.boca2_pw||'80',vias:Math.min(3,Math.max(1,+LS.boca2_pv||1))});
@@ -715,6 +715,31 @@ function feedback(tc){
   };
   unsubs.push(S.col('feedback',l=>{rows=l;draw()}));
   unsubs.push(S.col('orders',l=>{orders=l;draw()}));
+}
+// ----- Programa de fidelidade -----
+function fidelidade(tc){
+  const render=()=>{
+    const f=C.fidelidade||{},ativo=f.ativo===true;
+    const data=f.inicio?new Date(f.inicio).toLocaleString('pt-BR'):'Ainda não ativado';
+    tc.innerHTML=`<section class="f">
+      <h2 style="margin:0">Programa de fidelidade</h2>
+      <p>O cliente poderá ganhar uma recompensa a cada 20 unidades compradas na categoria Lanches e, separadamente, a cada 20 unidades na categoria Refeições.</p>
+      <p><b>Situação atual:</b> <span class="${ativo?'ok':'bad'}">${ativo?'Programa ativo':'Programa suspenso'}</span></p>
+      <p><b>Início da contagem:</b> ${E(data)}</p>
+      <p class="note">Ao suspender, a contagem e os resgates ficam pausados. O progresso e as recompensas já conquistadas serão preservados. Ao reativar, o programa continuará do mesmo ponto.</p>
+      <button type="button" class="btn ${ativo?'alt':''}" id="loyaltyToggle">${ativo?'Suspender programa':'Ativar programa'}</button>
+      <p id="loyaltyMsg" role="status" style="margin:8px 0 0"></p>
+    </section>`;
+    $('#loyaltyToggle').onclick=async()=>{
+      const btn=$('#loyaltyToggle'),msg=$('#loyaltyMsg');
+      btn.disabled=true;msg.textContent='Salvando...';
+      const atual=C.fidelidade||{},novoAtivo=atual.ativo!==true;
+      const proximo={ativo:novoAtivo,inicio:atual.inicio||(novoAtivo?new Date().toISOString():null)};
+      try{await saveCfg({fidelidade:proximo});render()}
+      catch(err){msg.textContent='Não foi possível salvar. Tente novamente.';btn.disabled=false;console.error(err)}
+    };
+  };
+  render();
 }
 // ----- Configurações, entregadores e cupons -----
 function config(tc){
