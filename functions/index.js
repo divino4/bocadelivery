@@ -318,7 +318,7 @@ exports.mercadoPagoWebhook = onRequest({ secrets: [MP_ACCESS_TOKEN, MP_WEBHOOK_S
 // Registra, em coleção separada e somente pelo servidor, a categoria real
 // dos produtos no instante em que o pedido é criado. Não altera pedido nem auditoria.
 function loyaltyCategory(value) {
-  const normalized = String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim().toLowerCase();
+  const normalized = String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
   if (normalized === 'lanches') return 'Lanches';
   if (normalized === 'refeicoes') return 'Refeições';
   return null;
