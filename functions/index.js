@@ -336,7 +336,7 @@ exports.captureLoyaltyOrder = onDocumentCreated('orders/{orderId}', async (event
       orderId, ownerUid: String(order.ownerUid), valido: false,
       motivo: 'data_pedido_invalida',
       processadoEm: admin.firestore.FieldValue.serverTimestamp()
-    }).catch((error) => { if (error.code !== 6) throw error; });
+    }).catch((error) => { if (error.code !== 6 && error.code !== 'already-exists') throw error; });
     return;
   }
 
