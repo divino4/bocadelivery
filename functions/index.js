@@ -2,6 +2,7 @@
 
 const { onCall, onRequest, HttpsError } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 const { setGlobalOptions } = require('firebase-functions/v2');
 const admin = require('firebase-admin');
 const crypto = require('node:crypto');
@@ -65,6 +66,7 @@ async function calculateOrder(order) {
     verifiedItems.push({
       produtoId: productId,
       nome: String(product.nome || '').slice(0, 120),
+      categoria: String(product.cat || '').slice(0, 80),
       qtd: qty,
       preco: unitCents / 100,
       extras: selected.map(String),
@@ -309,5 +311,72 @@ exports.mercadoPagoWebhook = onRequest({ secrets: [MP_ACCESS_TOKEN, MP_WEBHOOK_S
   } catch (error) {
     console.error('mercadoPagoWebhook failed', error);
     return res.status(500).send('Webhook processing failed');
+  }
+});
+
+
+// Registra, em coleção separada e somente pelo servidor, a categoria real
+// dos produtos no instante em que o pedido é criado. Não altera pedido nem auditoria.
+function loyaltyCategory(value) {
+  const normalized = String(value || '').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').trim().toLowerCase();
+  if (normalized === 'lanches') return 'Lanches';
+  if (normalized === 'refeicoes') return 'Refeições';
+  return null;
+}
+
+exports.captureLoyaltyOrder = onDocumentCreated('orders/{orderId}', async (event) => {
+  const order = event.data && event.data.data();
+  if (!order || !order.ownerUid || !Array.isArray(order.itens) || order.itens.length < 1 || order.itens.length > 50) return;
+
+  const orderId = event.params.orderId;
+  const snapshotRef = db.collection('loyaltyOrderSnapshots').doc(orderId);
+  const createdAt = new Date(order.criado || '');
+  if (!Number.isFinite(createdAt.getTime())) {
+    await snapshotRef.create({
+      orderId, ownerUid: String(order.ownerUid), valido: false,
+      motivo: 'data_pedido_invalida',
+      processadoEm: admin.firestore.FieldValue.serverTimestamp()
+    }).catch((error) => { if (error.code !== 6) throw error; });
+    return;
+  }
+
+  const items = [];
+  let valid = true;
+  for (const line of order.itens) {
+    const productId = String(line.produtoId || '');
+    const qty = Number(line.qtd);
+    if (!productId || !Number.isInteger(qty) || qty < 1 || qty > 30) {
+      valid = false;
+      break;
+    }
+    const productSnap = await db.collection('menu').doc(productId).get();
+    if (!productSnap.exists) {
+      valid = false;
+      break;
+    }
+    const actualCategory = loyaltyCategory(productSnap.data().cat);
+    const submittedCategory = loyaltyCategory(line.categoria);
+    // Categoria ausente ou diferente do cardápio: não concede pontos.
+    if (!actualCategory || submittedCategory !== actualCategory) {
+      valid = false;
+      break;
+    }
+    items.push({ produtoId: productId, categoria: actualCategory, qtd: qty });
+  }
+
+  const record = {
+    orderId,
+    ownerUid: String(order.ownerUid),
+    criado: admin.firestore.Timestamp.fromDate(createdAt),
+    valido: valid,
+    itens: valid ? items : [],
+    ...(valid ? {} : { motivo: 'categoria_ausente_ou_divergente' }),
+    processadoEm: admin.firestore.FieldValue.serverTimestamp()
+  };
+  try {
+    await snapshotRef.create(record);
+  } catch (error) {
+    // Cloud Functions pode repetir eventos; o primeiro registro é imutável.
+    if (error.code !== 6) throw error;
   }
 });
