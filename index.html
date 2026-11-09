@@ -457,7 +457,7 @@ function cliente(){
     const sel=()=>$$('.ck input',d).filter(x=>x.checked).map(x=>ex[+x.dataset.i]),unit=()=>m.preco+sel().reduce((s,x)=>s+x.p,0),up=()=>{$('#mq').textContent=q;$('#ad').textContent='Adicionar · '+R(q*unit())};up();
     d.addEventListener('change',e=>{if(e.target&&e.target.matches('.ck input'))up()});$('#mn').onclick=()=>{q=Math.max(1,q-1);up()};$('#pl').onclick=()=>{q++;up()};$('#cl').onclick=()=>{d.innerHTML=''};
     $('#ad').onclick=()=>{const es=sel().map(x=>x.n),ob=$('#ob').value.trim(),key=m.id+'|'+es.join(',')+'|'+ob,ln=cart.filter(l=>l.key===key)[0];
-      if(ln)ln.qtd+=q;else cart.push({key:key,id:m.id,nome:m.nome,extras:es,obs:ob,qtd:q,preco:unit()});d.innerHTML='';drawCart()};
+      if(ln)ln.qtd+=q;else cart.push({key:key,id:m.id,nome:m.nome,cat:m.cat||'',extras:es,obs:ob,qtd:q,preco:unit()});d.innerHTML='';drawCart()};
   }
   app.onclick=e=>{
     const c=e.target.closest('[data-copy]');if(c){const v=c.dataset.copy,t=c.textContent;(navigator.clipboard?navigator.clipboard.writeText(v):Promise.reject()).then(()=>{c.textContent='Copiado!';setTimeout(()=>c.textContent=t,1500)},()=>prompt('Copie o código:',v));return}
@@ -475,7 +475,7 @@ function cliente(){
   $('#co').onsubmit=async e=>{e.preventDefault();const btn=$('#sub');btn.disabled=true;const c=calc();
     const o={id:rid('B'),status:'novo',criado:new Date().toISOString(),nome:f.nome.value.trim(),tel:f.tel.value.replace(/\D/g,''),
       tipo:c.ret?'retirada':'entrega',cidade:c.ret?'':f.cidade.value,regiao:c.rg?c.rg.nome:'',end:c.ret?'':f.end.value.trim(),pag:f.pag.value,troco:f.pag.value==='Dinheiro'?f.troco.value.trim():'',obs:f.obs.value.trim(),
-      itens:cart.map(l=>({produtoId:l.id,nome:l.nome,qtd:l.qtd,preco:l.preco,extras:l.extras,obs:l.obs})),subtotal:c.sub,desconto:c.desc,cupom:cupom?cupom.id:'',taxa:c.taxa,total:c.total,pago:false,courier:'',eta:c.eta};
+      itens:cart.map(l=>({produtoId:l.id,nome:l.nome,categoria:l.cat||'',qtd:l.qtd,preco:l.preco,extras:l.extras,obs:l.obs})),subtotal:c.sub,desconto:c.desc,cupom:cupom?cupom.id:'',taxa:c.taxa,total:c.total,pago:false,courier:'',eta:c.eta};
     try{if(S.ensureClientAuth)o.ownerUid=await S.ensureClientAuth();await S.add(o);LS.boca2_last=o.id;LS.boca2_cli=JSON.stringify({nome:o.nome,tel:o.tel,end:o.end,cidade:o.cidade,email:f.email.value.trim()});
       if(o.pag==='Pix'){if(!S.createPixPayment)throw new Error('Integração Pix ainda não implantada no Firebase.');await S.createPixPayment(o.id,f.email.value.trim())}
       cart=[];cupom=null;f.cupom.value='';$('#cmsg').textContent='';f.obs.value='';$('#co').hidden=true;drawCart();window.scrollTo(0,0);track()}
@@ -734,7 +734,15 @@ function fidelidade(tc){
       const btn=$('#loyaltyToggle'),msg=$('#loyaltyMsg');
       btn.disabled=true;msg.textContent='Salvando...';
       const atual=C.fidelidade||{},novoAtivo=atual.ativo!==true;
-      const proximo={ativo:novoAtivo,inicio:atual.inicio||(novoAtivo?new Date().toISOString():null)};
+      const agora=new Date().toISOString();
+      const periodos=Array.isArray(atual.periodos)?atual.periodos.slice():[];
+      if(atual.ativo===true){
+        if(!periodos.length&&atual.inicio)periodos.push({inicio:atual.inicio,fim:agora});
+        else if(periodos.length&&!periodos[periodos.length-1].fim)periodos[periodos.length-1]=Object.assign({},periodos[periodos.length-1],{fim:agora});
+      }else if(novoAtivo){
+        periodos.push({inicio:agora,fim:null});
+      }
+      const proximo={ativo:novoAtivo,inicio:atual.inicio||(novoAtivo?agora:null),periodos};
       try{await saveCfg({fidelidade:proximo});render()}
       catch(err){msg.textContent='Não foi possível salvar. Tente novamente.';btn.disabled=false;console.error(err)}
     };
