@@ -20,7 +20,7 @@ function json(data, status = 200, origin = ALLOWED_ORIGIN) {
       "content-type": "application/json; charset=utf-8",
       "access-control-allow-origin": origin,
       "access-control-allow-methods": "POST, GET, OPTIONS",
-      "access-control-allow-headers": "content-type, x-signature, x-request-id",
+      "access-control-allow-headers": "content-type, authorization, x-signature, x-request-id",
       "access-control-max-age": "86400",
       "vary": "Origin"
     }
@@ -101,6 +101,60 @@ function fsObject(fields) {
   const out = {};
   for (const [key, value] of Object.entries(fields || {})) out[key] = fsDecode(value);
   return out;
+}
+
+let cachedFirebaseJwks = null;
+let cachedFirebaseJwksUntil = 0;
+
+function decodeJwtPart(part) {
+  const normalized = part.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+  const bytes = Uint8Array.from(binary, c => c.charCodeAt(0));
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+
+async function firebaseSigningKey(kid) {
+  if (!cachedFirebaseJwks || Date.now() >= cachedFirebaseJwksUntil) {
+    const response = await fetch("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com");
+    if (!response.ok) throw new Error("Não foi possível obter as chaves públicas do Firebase.");
+    cachedFirebaseJwks = await response.json();
+    const cacheControl = response.headers.get("cache-control") || "";
+    const maxAge = Number(cacheControl.match(/max-age=(\d+)/i)?.[1] || 3600);
+    cachedFirebaseJwksUntil = Date.now() + Math.max(60, Math.min(maxAge, 86400)) * 1000;
+  }
+  return (cachedFirebaseJwks.keys || []).find(key => key.kid === kid && key.kty === "RSA" && key.use === "sig") || null;
+}
+
+async function verifyFirebaseIdToken(request, env) {
+  const authorization = request.headers.get("authorization") || "";
+  const match = authorization.match(/^Bearer ([A-Za-z0-9._-]+)$/);
+  if (!match) return null;
+  const parts = match[1].split(".");
+  if (parts.length !== 3) return null;
+  let header, claims, signature;
+  try {
+    header = decodeJwtPart(parts[0]);
+    claims = decodeJwtPart(parts[1]);
+    const normalized = parts[2].replace(/-/g, "+").replace(/_/g, "/");
+    const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+    signature = Uint8Array.from(binary, c => c.charCodeAt(0));
+  } catch (_) { return null; }
+  const projectId = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT).project_id;
+  const now = Math.floor(Date.now() / 1000);
+  if (header.alg !== "RS256" || !header.kid ||
+      claims.iss !== "https://securetoken.google.com/" + projectId ||
+      claims.aud !== projectId || typeof claims.sub !== "string" ||
+      !claims.sub || claims.sub.length > 128 ||
+      !Number.isFinite(claims.exp) || claims.exp <= now ||
+      !Number.isFinite(claims.iat) || claims.iat > now + 60 ||
+      (claims.auth_time != null && (!Number.isFinite(claims.auth_time) || claims.auth_time > now + 60))) return null;
+  const jwk = await firebaseSigningKey(header.kid);
+  if (!jwk) return null;
+  const key = await crypto.subtle.importKey("jwk", jwk,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  const valid = await crypto.subtle.verify("RSASSA-PKCS1-v1_5", key, signature,
+    new TextEncoder().encode(parts[0] + "." + parts[1]));
+  return valid ? { uid: claims.sub } : null;
 }
 function cents(value) { return Math.round((Number(value) + Number.EPSILON) * 100); }
 function parseExtras(raw) {
@@ -228,8 +282,11 @@ async function createPix(request, env) {
   const email = String(input.email || "").trim().toLowerCase();
   if (!/^[A-Za-z0-9_-]{5,80}$/.test(orderId)) return json({ error: "Identificador do pedido inválido." }, 400);
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Informe um e-mail válido." }, 400);
+  const identity = await verifyFirebaseIdToken(request, env);
+  if (!identity) return json({ error: "Autenticação necessária. Atualize sua sessão e tente novamente." }, 401);
   const order = await getDoc(env, "orders", orderId);
   if (!order) return json({ error: "Pedido não encontrado." }, 404);
+  if (String(order.ownerUid || "") !== identity.uid) return json({ error: "Este pedido não pertence à conta autenticada." }, 403);
   if (order.pag !== "Pix") return json({ error: "Este pedido não foi feito com Pix." }, 400);
   if (order.pago === true) return json({ paid: true });
   if (["cancelado", "entregue"].includes(order.status)) return json({ error: "Este pedido não aceita mais pagamento." }, 400);
@@ -341,7 +398,7 @@ export default {
       status: 204, headers: {
         "access-control-allow-origin": origin === ALLOWED_ORIGIN ? origin : ALLOWED_ORIGIN,
         "access-control-allow-methods": "POST, GET, OPTIONS",
-        "access-control-allow-headers": "content-type, x-signature, x-request-id",
+        "access-control-allow-headers": "content-type, authorization, x-signature, x-request-id",
         "access-control-max-age": "86400", "vary": "Origin"
       }
     });
