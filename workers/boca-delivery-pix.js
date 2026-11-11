@@ -146,8 +146,8 @@ async function verifyFirebaseIdToken(request, env) {
       claims.aud !== projectId || typeof claims.sub !== "string" ||
       !claims.sub || claims.sub.length > 128 ||
       !Number.isFinite(claims.exp) || claims.exp <= now ||
-      !Number.isFinite(claims.iat) || claims.iat > now + 60 ||
-      (claims.auth_time != null && (!Number.isFinite(claims.auth_time) || claims.auth_time > now + 60))) return null;
+      !Number.isFinite(claims.iat) || claims.iat > now ||
+      !Number.isFinite(claims.auth_time) || claims.auth_time > now) return null;
   const jwk = await firebaseSigningKey(header.kid);
   if (!jwk) return null;
   const key = await crypto.subtle.importKey("jwk", jwk,
@@ -192,6 +192,42 @@ async function patchDoc(env, collection, id, patch) {
   return firestoreRequest(env, collection + "/" + encodeURIComponent(id) + "?" + params, {
     method: "PATCH", body: JSON.stringify({ fields })
   });
+}
+
+async function getDocSnapshot(env, collection, id) {
+  try {
+    const doc = await firestoreRequest(env, collection + "/" + encodeURIComponent(id));
+    return { data: fsObject(doc.fields || {}), updateTime: doc.updateTime || null };
+  } catch (error) {
+    if (String(error.message).includes("HTTP 404")) return null;
+    throw error;
+  }
+}
+
+async function patchDocIfUnchanged(env, collection, id, updateTime, patch) {
+  if (!updateTime) throw new Error("Firestore não retornou updateTime para proteção concorrente.");
+  const fields = {};
+  for (const [key, value] of Object.entries(patch)) fields[key] = fsEncode(value);
+  const projectId = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT).project_id;
+  const token = await googleAccessToken(env);
+  const documentName = "projects/" + projectId + "/databases/(default)/documents/" +
+    collection + "/" + encodeURIComponent(id);
+  const response = await fetch("https://firestore.googleapis.com/v1/projects/" +
+    encodeURIComponent(projectId) + "/databases/(default)/documents:commit", {
+      method: "POST",
+      headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({ writes: [{
+        update: { name: documentName, fields },
+        updateMask: { fieldPaths: Object.keys(patch) },
+        currentDocument: { updateTime }
+      }] })
+    });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    if (body.error?.status === "FAILED_PRECONDITION" || response.status === 409) return false;
+    throw new Error("Firestore commit HTTP " + response.status + ": " + (body.error?.message || "erro"));
+  }
+  return true;
 }
 async function createOrPatchDoc(env, collection, id, data) {
   const existing = await getDoc(env, collection, id);
@@ -307,12 +343,22 @@ async function createPix(request, env) {
   }
 
   const verified = await calculateOrder(env, order);
-  const attemptId = order.pixStatus === "error" && order.pixAttemptId && !order.pixPaymentId ? order.pixAttemptId : crypto.randomUUID();
-  await patchDoc(env, "orders", orderId, {
+  const latest = await getDocSnapshot(env, "orders", orderId);
+  if (!latest) return json({ error: "Pedido não encontrado." }, 404);
+  if (String(latest.data.ownerUid || "") !== identity.uid) return json({ error: "Este pedido não pertence à conta autenticada." }, 403);
+  if (latest.data.pago === true) return json({ paid: true });
+  const creatingAt = Date.parse(latest.data.pixCreatingAt || "");
+  if (latest.data.pixStatus === "creating" && Number.isFinite(creatingAt) && Date.now() - creatingAt < 120000) {
+    return json({ error: "Já estamos processando o Pix deste pedido. Aguarde alguns instantes." }, 409);
+  }
+  const attemptId = latest.data.pixAttemptId && !latest.data.pixPaymentId &&
+    ["error", "creating"].includes(latest.data.pixStatus) ? latest.data.pixAttemptId : crypto.randomUUID();
+  const claimed = await patchDocIfUnchanged(env, "orders", orderId, latest.updateTime, {
     subtotal: verified.subtotal, desconto: verified.desconto, taxa: verified.taxa,
     total: verified.total, itens: verified.itens, pixAttemptId: attemptId,
-    pixStatus: "creating", pixEmail: email
+    pixStatus: "creating", pixEmail: email, pixCreatingAt: new Date().toISOString()
   });
+  if (!claimed) return json({ error: "O pedido foi atualizado por outra solicitação. Tente novamente." }, 409);
   try {
     const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     const payment = await mpRequest(env, "/v1/payments", {
@@ -330,15 +376,25 @@ async function createPix(request, env) {
     });
     const tx = payment.point_of_interaction?.transaction_data || {};
     if (!payment.id || !tx.qr_code) throw new Error("Mercado Pago não retornou o QR Code Pix.");
-    await patchDoc(env, "orders", orderId, {
+    const afterPayment = await getDocSnapshot(env, "orders", orderId);
+    if (!afterPayment || afterPayment.data.pixAttemptId !== attemptId) {
+      return json({ error: "O Pix foi criado, mas o pedido mudou durante o processamento. Entre em contato com a loja." }, 409);
+    }
+    const saved = await patchDocIfUnchanged(env, "orders", orderId, afterPayment.updateTime, {
       pixPaymentId: String(payment.id), pixQrCode: tx.qr_code,
       pixQrBase64: tx.qr_code_base64 || null, pixTicketUrl: tx.ticket_url || null,
       pixExpiresAt: expiresAt, pixStatus: payment.status || "pending",
       pixUpdatedAt: new Date().toISOString()
     });
+    if (!saved) return json({ error: "O Pix foi criado, mas não foi possível atualizar o pedido. Tente consultar novamente." }, 409);
     return json({ paymentId: String(payment.id), qrCode: tx.qr_code, qrCodeBase64: tx.qr_code_base64 || null, ticketUrl: tx.ticket_url || null });
   } catch (error) {
-    await patchDoc(env, "orders", orderId, { pixStatus: "error", pixErrorAt: new Date().toISOString() }).catch(() => {});
+    const failedSnapshot = await getDocSnapshot(env, "orders", orderId).catch(() => null);
+    if (failedSnapshot && failedSnapshot.data.pixAttemptId === attemptId && failedSnapshot.data.pixStatus === "creating") {
+      await patchDocIfUnchanged(env, "orders", orderId, failedSnapshot.updateTime, {
+        pixStatus: "error", pixErrorAt: new Date().toISOString()
+      }).catch(() => false);
+    }
     console.error("createPix failed", orderId, error);
     return json({ error: "Não foi possível gerar o Pix agora. Tente novamente em instantes." }, 502);
   }
