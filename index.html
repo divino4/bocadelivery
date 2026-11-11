@@ -191,10 +191,13 @@ async function fbStore(cfg){
 
   const clean=o=>JSON.parse(JSON.stringify(o));
   return{mode:'firebase',
-async createPixPayment(orderId,email){
+async async createPixPayment(orderId,email){
+  const user=au.currentUser;
+  if(!user)throw new Error('Sua sessão expirou. Entre novamente para gerar o Pix.');
+  const idToken=await user.getIdToken();
   const r=await fetch('https://boca-delivery-pix.valdivinomartinsdias89.workers.dev/create-pix',{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
     body:JSON.stringify({orderId,email})
   });
   const data=await r.json();
