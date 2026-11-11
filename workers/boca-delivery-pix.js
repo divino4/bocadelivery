@@ -120,7 +120,7 @@ async function firebaseSigningKey(kid) {
     cachedFirebaseJwks = await response.json();
     const cacheControl = response.headers.get("cache-control") || "";
     const maxAge = Number(cacheControl.match(/max-age=(\d+)/i)?.[1] || 3600);
-    cachedFirebaseJwksUntil = Date.now() + Math.max(60, Math.min(maxAge, 86400)) * 1000;
+    cachedFirebaseJwksUntil = Date.now() + Math.max(1, Math.min(maxAge, 86400)) * 1000;
   }
   return (cachedFirebaseJwks.keys || []).find(key => key.kid === kid && key.kty === "RSA" && key.use === "sig") || null;
 }
@@ -330,7 +330,18 @@ async function createPix(request, env) {
   if (order.pixPaymentId) {
     const previous = await mpRequest(env, "/v1/payments/" + encodeURIComponent(order.pixPaymentId), { method: "GET" });
     if (previous.status === "approved") {
-      await patchDoc(env, "orders", orderId, { pago: true, pixStatus: "approved", pixApprovedAt: new Date().toISOString() });
+      const previousOrderId = String(previous.external_reference || "");
+      const previousMetadataOrderId = String(previous.metadata?.order_id || "");
+      const previousAttemptId = String(previous.metadata?.pix_attempt_id || "");
+      if (previousOrderId !== orderId || previousMetadataOrderId !== orderId ||
+          previous.currency_id !== "BRL" || previous.payment_method_id !== "pix" ||
+          !order.pixAttemptId || previousAttemptId !== String(order.pixAttemptId) ||
+          cents(previous.transaction_amount) !== cents(order.total)) {
+        return json({ error: "A cobrança Pix aprovada não corresponde aos dados atuais do pedido. A loja deverá verificar o pagamento." }, 409);
+      }
+      await patchDoc(env, "orders", orderId, {
+        pago: true, pixStatus: "approved", pixApprovedAt: new Date().toISOString()
+      });
       return json({ paid: true });
     }
     const expiry = Date.parse(order.pixExpiresAt || "");
@@ -422,8 +433,10 @@ async function webhook(request, env) {
   if (!await validWebhookSignature(request, dataId, env)) return new Response("Invalid signature", { status: 401 });
   try {
     const payment = await mpRequest(env, "/v1/payments/" + encodeURIComponent(dataId), { method: "GET" });
-    const orderId = String(payment.external_reference || payment.metadata?.order_id || "");
-    if (!orderId || payment.currency_id !== "BRL" || payment.payment_method_id !== "pix") return new Response("ignored", { status: 200 });
+    const orderId = String(payment.external_reference || "");
+    const metadataOrderId = String(payment.metadata?.order_id || "");
+    if (!orderId || metadataOrderId !== orderId ||
+        payment.currency_id !== "BRL" || payment.payment_method_id !== "pix") return new Response("ignored", { status: 200 });
     const order = await getDoc(env, "orders", orderId);
     if (!order) return new Response("ok", { status: 200 });
     const attemptId = String(payment.metadata?.pix_attempt_id || "");
