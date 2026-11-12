@@ -491,8 +491,8 @@ async function createCardPayment(request, env) {
     return json({ error: "Não foi possível confirmar o envio do cartão. Não tente pagar novamente; a loja precisa verificar a tentativa." }, 502);
   }
 }
-async function validWebhookSignature(request, dataId, env) {
-  const secret = env.MP_WEBHOOK_SECRET;
+async function validWebhookSignature(request, dataId, env, secretOverride) {
+  const secret = secretOverride || env.MP_WEBHOOK_SECRET;
   const signature = request.headers.get("x-signature") || "";
   const requestId = request.headers.get("x-request-id") || "";
   const parts = Object.fromEntries(signature.split(",").map(x => x.trim().split("=").map(v => v.trim())));
@@ -511,9 +511,9 @@ async function webhook(request, env) {
   const dataId = String(url.searchParams.get("data.id") || body.data?.id || "").trim();
   const type = String(url.searchParams.get("type") || body.type || "");
   if (type && type !== "payment") return new Response("ignored", { status: 200 });
-  if (!await validWebhookSignature(request, dataId, env)) return new Response("Invalid signature", { status: 401 });
+  const isTestEnvironment = url.searchParams.get("environment") === "test";
+  if (!await validWebhookSignature(request, dataId, env, isTestEnvironment ? env.MP_WEBHOOK_SECRET_TEST : env.MP_WEBHOOK_SECRET)) return new Response("Invalid signature", { status: 401 });
   try {
-    const isTestEnvironment = url.searchParams.get("environment") === "test";
     const payment = await mpRequest(env, "/v1/payments/" + encodeURIComponent(dataId), { method: "GET" }, isTestEnvironment ? env.MP_ACCESS_TOKEN_TEST : env.MP_ACCESS_TOKEN);
     const orderId = String(payment.external_reference || "");
     const metadataOrderId = String(payment.metadata?.order_id || "");
