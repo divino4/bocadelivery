@@ -191,7 +191,7 @@ async function fbStore(cfg){
 
   const clean=o=>JSON.parse(JSON.stringify(o));
   return{mode:'firebase',
-async async createPixPayment(orderId,email){
+async createPixPayment(orderId,email){
   const user=au.currentUser;
   if(!user)throw new Error('Sua sessão expirou. Entre novamente para gerar o Pix.');
   const idToken=await user.getIdToken();
