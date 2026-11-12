@@ -300,10 +300,11 @@ async function calculateOrder(env, order) {
   if (totalCents <= 0) throw new Error("O total do pedido precisa ser maior que zero.");
   return { itens: verifiedItems, subtotal: subtotalCents / 100, desconto: discountCents / 100, taxa: deliveryCents / 100, total: totalCents / 100 };
 }
-async function mpRequest(env, path, options = {}) {
+async function mpRequest(env, path, options = {}, accessToken = env.MP_ACCESS_TOKEN) {
+  if (!accessToken) throw new Error("Credencial Mercado Pago não configurada para este ambiente.");
   const response = await fetch(MP_API + path, {
     ...options,
-    headers: { authorization: "Bearer " + env.MP_ACCESS_TOKEN, "content-type": "application/json", ...(options.headers || {}) }
+    headers: { authorization: "Bearer " + accessToken, "content-type": "application/json", ...(options.headers || {}) }
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -410,6 +411,86 @@ async function createPix(request, env) {
     return json({ error: "Não foi possível gerar o Pix agora. Tente novamente em instantes." }, 502);
   }
 }
+async function createCardPayment(request, env) {
+  const input = await request.json();
+  const orderId = String(input.orderId || "").trim();
+  const token = String(input.token || "");
+  const paymentMethodId = String(input.payment_method_id || "").trim();
+  const paymentTypeId = String(input.payment_type_id || "").trim();
+  const email = String(input.email || "").trim().toLowerCase();
+  const installments = Number(input.installments);
+  const issuerId = input.issuer_id == null ? undefined : Number(input.issuer_id);
+  const identificationType = String(input.identification?.type || "");
+  const identificationNumber = String(input.identification?.number || "").replace(/\\D/g, "");
+  if (!/^[A-Za-z0-9_-]{5,80}$/.test(orderId)) return json({ error: "Identificador do pedido inválido." }, 400);
+  if (!token || token.length > 2000 || !paymentMethodId || paymentMethodId.length > 80) return json({ error: "Dados do cartão incompletos." }, 400);
+  if (!["credit_card", "debit_card"].includes(paymentTypeId)) return json({ error: "Tipo de cartão não permitido." }, 400);
+  if (!Number.isInteger(installments) || installments < 1 || installments > (paymentTypeId === "credit_card" ? 6 : 1)) return json({ error: "Parcelamento inválido." }, 400);
+  if (email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return json({ error: "Informe um e-mail válido." }, 400);
+  if (!["CPF", "CNPJ"].includes(identificationType) || !/^\\d{11}$|^\\d{14}$/.test(identificationNumber)) return json({ error: "Informe um CPF ou CNPJ válido." }, 400);
+  if (!env.MP_ACCESS_TOKEN_TEST) return json({ error: "Credencial de teste do Mercado Pago ainda não configurada no servidor." }, 503);
+  const identity = await verifyFirebaseIdToken(request, env);
+  if (!identity) return json({ error: "Autenticação necessária. Atualize sua sessão e tente novamente." }, 401);
+  const order = await getDoc(env, "orders", orderId);
+  if (!order) return json({ error: "Pedido não encontrado." }, 404);
+  if (String(order.ownerUid || "") !== identity.uid) return json({ error: "Este pedido não pertence à conta autenticada." }, 403);
+  if (order.pag !== "Cartão online") return json({ error: "Este pedido não foi feito com cartão online." }, 400);
+  if (order.pago === true) return json({ paid: true });
+  if (["cancelado", "entregue"].includes(order.status)) return json({ error: "Este pedido não aceita mais pagamento." }, 400);
+  if (order.cardAttemptId || order.cardPaymentId) return json({ error: "Já existe uma tentativa de cartão para este pedido. A loja deverá verificar o status antes de uma nova cobrança." }, 409);
+  const verified = await calculateOrder(env, order);
+  const latest = await getDocSnapshot(env, "orders", orderId);
+  if (!latest || String(latest.data.ownerUid || "") !== identity.uid) return json({ error: "Pedido não encontrado para esta conta." }, 404);
+  if (latest.data.pago === true) return json({ paid: true });
+  if (latest.data.cardAttemptId || latest.data.cardPaymentId) return json({ error: "Já existe uma tentativa de cartão para este pedido." }, 409);
+  const attemptId = crypto.randomUUID();
+  const claimed = await patchDocIfUnchanged(env, "orders", orderId, latest.updateTime, {
+    subtotal: verified.subtotal, desconto: verified.desconto, taxa: verified.taxa,
+    total: verified.total, itens: verified.itens, cardAttemptId: attemptId,
+    cardStatus: "creating", cardPaymentType: paymentTypeId,
+    cardInstallments: installments, cardCreatingAt: new Date().toISOString()
+  });
+  if (!claimed) return json({ error: "O pedido foi atualizado por outra solicitação. Tente novamente." }, 409);
+  try {
+    const payment = await mpRequest(env, "/v1/payments", {
+      method: "POST",
+      headers: { "X-Idempotency-Key": attemptId },
+      body: JSON.stringify({
+        transaction_amount: verified.total,
+        token, description: "Pedido " + orderId + " - Boca Delivery",
+        installments, payment_method_id: paymentMethodId,
+        ...(Number.isInteger(issuerId) ? { issuer_id: issuerId } : {}),
+        payer: { email, identification: { type: identificationType, number: identificationNumber } },
+        external_reference: orderId,
+        notification_url: new URL("/webhook?environment=test", request.url).toString(),
+        metadata: { order_id: orderId, card_attempt_id: attemptId, environment: "test" }
+      })
+    }, env.MP_ACCESS_TOKEN_TEST);
+    if (!payment.id || !payment.status) throw new Error("Mercado Pago não retornou o status do pagamento.");
+    const afterPayment = await getDocSnapshot(env, "orders", orderId);
+    if (!afterPayment || afterPayment.data.cardAttemptId !== attemptId) {
+      return json({ error: "O pagamento foi enviado, mas o pedido mudou durante o processamento. A loja deverá verificar." }, 409);
+    }
+    const saved = await patchDocIfUnchanged(env, "orders", orderId, afterPayment.updateTime, {
+      cardPaymentId: String(payment.id), cardStatus: String(payment.status),
+      cardStatusDetail: String(payment.status_detail || ""),
+      cardPaymentType: String(payment.payment_type_id || paymentTypeId),
+      cardPaymentMethod: paymentMethodId, cardInstallments: installments,
+      cardUpdatedAt: new Date().toISOString()
+    });
+    if (!saved) return json({ error: "O pagamento foi enviado, mas não foi possível atualizar o pedido. A loja deverá verificar." }, 409);
+    return json({ paymentId: String(payment.id), status: String(payment.status), statusDetail: String(payment.status_detail || "") });
+  } catch (error) {
+    const failed = await getDocSnapshot(env, "orders", orderId).catch(() => null);
+    if (failed && failed.data.cardAttemptId === attemptId) {
+      await patchDocIfUnchanged(env, "orders", orderId, failed.updateTime, {
+        cardStatus: "review_required", cardErrorAt: new Date().toISOString()
+      }).catch(() => false);
+    }
+    console.error("createCardPayment failed", orderId, error);
+    return json({ error: "Não foi possível confirmar o envio do cartão. Não tente pagar novamente; a loja precisa verificar a tentativa." }, 502);
+  }
+}
 async function validWebhookSignature(request, dataId, env) {
   const secret = env.MP_WEBHOOK_SECRET;
   const signature = request.headers.get("x-signature") || "";
@@ -432,26 +513,42 @@ async function webhook(request, env) {
   if (type && type !== "payment") return new Response("ignored", { status: 200 });
   if (!await validWebhookSignature(request, dataId, env)) return new Response("Invalid signature", { status: 401 });
   try {
-    const payment = await mpRequest(env, "/v1/payments/" + encodeURIComponent(dataId), { method: "GET" });
+    const isTestEnvironment = url.searchParams.get("environment") === "test";
+    const payment = await mpRequest(env, "/v1/payments/" + encodeURIComponent(dataId), { method: "GET" }, isTestEnvironment ? env.MP_ACCESS_TOKEN_TEST : env.MP_ACCESS_TOKEN);
     const orderId = String(payment.external_reference || "");
     const metadataOrderId = String(payment.metadata?.order_id || "");
-    if (!orderId || metadataOrderId !== orderId ||
-        payment.currency_id !== "BRL" || payment.payment_method_id !== "pix") return new Response("ignored", { status: 200 });
+    if (!orderId || metadataOrderId !== orderId || payment.currency_id !== "BRL") return new Response("ignored", { status: 200 });
     const order = await getDoc(env, "orders", orderId);
     if (!order) return new Response("ok", { status: 200 });
+    const now = new Date().toISOString();
+    if (isTestEnvironment) {
+      const attemptId = String(payment.metadata?.card_attempt_id || "");
+      const validType = ["credit_card", "debit_card"].includes(String(payment.payment_type_id || ""));
+      if (order.pag !== "Cartão online" || !attemptId || order.cardAttemptId !== attemptId ||
+          !validType || String(order.cardPaymentId || payment.id) !== String(payment.id) ||
+          cents(payment.transaction_amount) !== cents(order.total)) return new Response("ok", { status: 200 });
+      const patch = { cardStatus: String(payment.status || "pending"), cardStatusDetail: String(payment.status_detail || ""), cardPaymentId: String(payment.id), cardUpdatedAt: now };
+      if (payment.status === "approved" && order.pago !== true) {
+        patch.pago = true; patch.cardApprovedAt = now;
+        await createOrPatchDoc(env, "audit", "mp_card_" + String(payment.id), {
+          orderId, action: "mercado_pago_cartao_aprovado", paymentId: String(payment.id),
+          amount: Number(payment.transaction_amount), actor: "mercado_pago_webhook", ts: now
+        });
+      }
+      if (order.pago !== true || payment.status === "approved") await patchDoc(env, "orders", orderId, patch);
+      return new Response("ok", { status: 200 });
+    }
+    if (payment.payment_method_id !== "pix") return new Response("ignored", { status: 200 });
     const attemptId = String(payment.metadata?.pix_attempt_id || "");
     if (!attemptId || order.pixAttemptId !== attemptId || cents(payment.transaction_amount) !== cents(order.total)) return new Response("ok", { status: 200 });
     if (order.pixPaymentId && String(order.pixPaymentId) !== String(payment.id)) return new Response("ok", { status: 200 });
-    const patch = { pixStatus: String(payment.status || "pending"), pixPaymentId: String(payment.id), pixUpdatedAt: new Date().toISOString() };
+    const patch = { pixStatus: String(payment.status || "pending"), pixPaymentId: String(payment.id), pixUpdatedAt: now };
     if (payment.status === "approved" && order.pago !== true) {
-      patch.pago = true;
-      patch.pixApprovedAt = new Date().toISOString();
-      const audit = {
+      patch.pago = true; patch.pixApprovedAt = now;
+      await createOrPatchDoc(env, "audit", "mp_" + String(payment.id), {
         orderId, action: "mercado_pago_pix_aprovado", paymentId: String(payment.id),
-        amount: Number(payment.transaction_amount), actor: "mercado_pago_webhook",
-        ts: new Date().toISOString()
-      };
-      await createOrPatchDoc(env, "audit", "mp_" + String(payment.id), audit);
+        amount: Number(payment.transaction_amount), actor: "mercado_pago_webhook", ts: now
+      });
     }
     if (order.pago !== true || payment.status === "approved") await patchDoc(env, "orders", orderId, patch);
     return new Response("ok", { status: 200 });
@@ -483,6 +580,7 @@ export default {
         }
       }
       if (url.pathname === "/create-pix" && request.method === "POST") return await createPix(request, env);
+      if (url.pathname === "/create-card-payment" && request.method === "POST") return await createCardPayment(request, env);
       if (url.pathname === "/webhook") return await webhook(request, env);
       if (url.pathname === "/" && request.method === "GET") return new Response("Boca Delivery Pix Worker", { status: 200 });
       return new Response("Not found", { status: 404 });
