@@ -9,6 +9,7 @@
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://sdk.mercadopago.com/js/v2"></script>
 <style>
 :root{--ink:#1b1030;--bg:#f7f6fb;--line:#dcd8e8;--acc:#e5173f;--hi:#ffd400;--ok:#14804a;--mut:#6b6580;--w:#fff}
 *{box-sizing:border-box}
@@ -311,9 +312,9 @@ function cliente(){
    <div class="seg"><label><input type="radio" name="tipo" value="entrega" checked> Entrega</label><label id="lret"><input type="radio" name="tipo" value="retirada"> Retirar no balcão</label></div>
    <label>Nome<input name="nome" required autocomplete="name"></label>
    <label>WhatsApp com DDD<input name="tel" required inputmode="tel" autocomplete="tel" placeholder="61999999999"></label>
-   <label id="emailWrap">E-mail para identificar o pagamento Pix<input name="email" type="email" autocomplete="email" placeholder="voce@email.com"></label>
+   <label id="emailWrap">E-mail para pagamento<input name="email" type="email" autocomplete="email" placeholder="voce@email.com"></label>
    <div id="ent" style="display:grid;gap:10px"><label>Cidade (região administrativa)<select name="cidade"></select></label><small id="nb" style="color:var(--mut)"></small><label>Endereço<input name="end" autocomplete="street-address" placeholder="Quadra, conjunto, casa/lote"></label></div>
-   <label>Pagamento<select name="pag"><option value="Pix">Pix (pago pelo app do banco)</option><option value="Dinheiro">Dinheiro</option><option value="Cartão">Cartão (maquininha)</option></select></label>
+   <label>Pagamento<select name="pag"><option value="Pix">Pix (pago pelo app do banco)</option><option value="Dinheiro">Dinheiro</option><option value="Cartão">Cartão (maquininha)</option><option value="Cartão online">Cartão online (crédito ou débito)</option></select></label>
    <label id="trc" hidden>Troco para quanto?<input name="troco" inputmode="decimal" placeholder="Ex.: 50 (vazio se não precisa)"></label>
    <label>Observações do pedido<textarea name="obs" rows="2"></textarea></label>
    <div class="cup"><input name="cupom" placeholder="Cupom de desconto" aria-label="Cupom"><button type="button" class="btn sm alt" id="apc">Aplicar</button></div><p id="cmsg" role="status" style="margin:0;font-size:14px"></p>
@@ -468,8 +469,8 @@ function cliente(){
     const a=e.target.closest('[data-add]');if(a){openItem(menu.filter(m=>m.id===a.dataset.add)[0]);return}
     const k=e.target.closest('[data-k]');if(k){const l=cart[+k.dataset.k];l.qtd+=+k.dataset.d;if(l.qtd<1)cart.splice(+k.dataset.k,1);drawCart()}};
   $('#go').onclick=()=>{$('#co').hidden=false;$('#co').scrollIntoView({behavior:'smooth'})};
-  $('#co').onchange=()=>{$('#trc').hidden=f.pag.value!=='Dinheiro';f.email.required=f.pag.value==='Pix';$('#emailWrap').style.display=f.pag.value==='Pix'?'':'none';drawCart()};
-  f.email.required=f.pag.value==='Pix';$('#emailWrap').style.display=f.pag.value==='Pix'?'':'none';
+  $('#co').onchange=()=>{$('#trc').hidden=f.pag.value!=='Dinheiro';f.email.required=['Pix','Cartão online'].includes(f.pag.value);$('#emailWrap').style.display=['Pix','Cartão online'].includes(f.pag.value)?'':'none';drawCart()};
+  f.email.required=['Pix','Cartão online'].includes(f.pag.value);$('#emailWrap').style.display=['Pix','Cartão online'].includes(f.pag.value)?'':'none';
   $('#apc').onclick=async()=>{const code=f.cupom.value.trim().toUpperCase(),m=$('#cmsg');cupom=null;
     if(!code){m.textContent='';return drawCart()}
     const c=await S.get('cupons',code),sub=calc().sub;
@@ -483,13 +484,46 @@ function cliente(){
       if(o.pag==='Pix'){if(!S.createPixPayment)throw new Error('Integração Pix ainda não implantada no Firebase.');await S.createPixPayment(o.id,f.email.value.trim())}
       cart=[];cupom=null;f.cupom.value='';$('#cmsg').textContent='';f.obs.value='';$('#co').hidden=true;drawCart();window.scrollTo(0,0);track()}
     catch(x){alert(x&&x.message&&x.message.includes('Integração Pix')?'O pedido foi registrado, mas o Pix ainda não está configurado. Entre em contato com a loja.':'O pedido foi registrado, mas não foi possível gerar o Pix. Tente novamente ou fale com a loja.');console.error(x);LS.boca2_last=o.id;track()}drawCart()};
+  async function mountCardBrick(order){
+    if(S.mode!=='firebase'||!window.MercadoPago||!order||!order.id)return;
+    if(window.__bocaCardBrickOrderId===order.id)return;
+    if(window.cardPaymentBrickController){try{await window.cardPaymentBrickController.unmount()}catch(e){}}
+    window.__bocaCardBrickOrderId=order.id;
+    const saved=(()=>{try{return JSON.parse(LS.boca2_cli||'{}')}catch(e){return {}}})();
+    try{
+      const mp=new window.MercadoPago('APP_USR-6f750e88-29f6-43d3-8448-0b786019dfa4');
+      window.cardPaymentBrickController=await mp.bricks().create('cardPayment','cardPaymentBrick_container',{
+        initialization:{amount:Number(order.total),payer:{email:String(saved.email||'')}},
+        customization:{paymentMethods:{creditCard:'all',debitCard:'all',maxInstallments:6}},
+        callbacks:{
+          onReady:()=>{},
+          onSubmit:(formData,additionalData)=>new Promise(async(resolve,reject)=>{
+            try{
+              const user=S.clientUser&&S.clientUser();if(!user)throw new Error('Sua sessão expirou. Entre novamente.');
+              const idToken=await user.getIdToken();
+              const response=await fetch('https://boca-delivery-pix.valdivinomartinsdias89.workers.dev/create-card-payment',{
+                method:'POST',
+                headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
+                body:JSON.stringify({orderId:order.id,token:formData.token,payment_method_id:formData.payment_method_id,payment_type_id:additionalData&&additionalData.paymentTypeId,installments:Number(formData.installments||1),issuer_id:formData.issuer_id,email:formData.payer&&formData.payer.email||saved.email,identification:formData.payer&&formData.payer.identification})
+              });
+              const result=await response.json();if(!response.ok)throw new Error(result.error||'Não foi possível enviar o pagamento.');
+              const message=document.getElementById('cardPaymentMessage');if(message)message.textContent='Pagamento enviado. Status inicial: '+result.status+'. A confirmação final será atualizada automaticamente.';
+              resolve();
+            }catch(error){const message=document.getElementById('cardPaymentMessage');if(message)message.textContent=error.message||'Falha ao processar o cartão.';reject();}
+          }),
+          onError:(error)=>console.error('Mercado Pago Card Brick',error)
+        }
+      });
+    }catch(error){console.error('Falha ao abrir formulário de cartão',error);const message=document.getElementById('cardPaymentMessage');if(message)message.textContent='Não foi possível carregar o formulário de cartão. Atualize a página ou fale com a loja.';window.__bocaCardBrickOrderId=null;}
+  }
   function track(){const id=LS.boca2_last;if(!id)return;unsubs.push(S.doc('orders',id,o=>{if(!o){$('#track').innerHTML='';return}
     const i=FLOW.indexOf(o.status),ret=o.tipo==='retirada';
     $('#track').innerHTML=`<div class="track"><b>Pedido ${E(o.id)}: ${L(o.status,o.tipo)}</b><div>${o.itens.map(l=>(+l.qtd||0)+'× '+E(l.nome)).join(', ')} · ${R(o.total)} · ${ret?'Retirada no balcão':'Entrega'}</div>
     ${o.courier&&o.status==='entrega'?`<div>Entregador: ${E(o.courier)}</div>`:''}${['novo','preparo'].indexOf(o.status)>=0?`<div>Tempo estimado: ${E(o.eta||C.tempo)}</div>`:''}
     ${o.status==='cancelado'?'':`<div class="steps" aria-hidden="true">${FLOW.map((_,k)=>`<span class="${k<=i?'on':''}"></span>`).join('')}</div>`}
     ${o.pago?'<p class="ok" style="margin:10px 0 0">Pagamento confirmado. Obrigado!</p>':''}
-    ${!o.pago&&o.pag==='Pix'&&['cancelado','entregue'].indexOf(o.status)<0?(o.pixQrCode?`<div class="pix"><b>Pix de ${R(o.total)} · aguardando pagamento</b><p>Escaneie o QR Code pelo aplicativo do seu banco ou copie o código abaixo.</p>${o.pixQrBase64?`<p style="text-align:center"><img alt="QR Code Pix" style="width:220px;max-width:100%;background:#fff;padding:10px;border-radius:8px" src="data:image/png;base64,${E(o.pixQrBase64)}"></p>`:''}<code>${E(o.pixQrCode)}</code><div class="act"><button class="btn sm" data-copy="${E(o.pixQrCode)}">Copiar Pix copia e cola</button>${o.pixTicketUrl?`<a class="btn sm ghost" href="${E(o.pixTicketUrl)}" target="_blank" rel="noopener">Abrir pagamento</a>`:''}</div><p>Assim que o Mercado Pago confirmar, esta tela será atualizada automaticamente. Não é necessário enviar comprovante.</p></div>`:`<div class="pix"><b>Pix ainda não gerado</b><p>Se a cobrança não apareceu, tente novamente.</p><button class="btn sm" data-retry-pix="${E(o.id)}">Gerar Pix novamente</button></div>`):''}</div>`}))}
+    ${!o.pago&&o.pag==='Pix'&&['cancelado','entregue'].indexOf(o.status)<0?(o.pixQrCode?`<div class="pix"><b>Pix de ${R(o.total)} · aguardando pagamento</b><p>Escaneie o QR Code pelo aplicativo do seu banco ou copie o código abaixo.</p>${o.pixQrBase64?`<p style="text-align:center"><img alt="QR Code Pix" style="width:220px;max-width:100%;background:#fff;padding:10px;border-radius:8px" src="data:image/png;base64,${E(o.pixQrBase64)}"></p>`:''}<code>${E(o.pixQrCode)}</code><div class="act"><button class="btn sm" data-copy="${E(o.pixQrCode)}">Copiar Pix copia e cola</button>${o.pixTicketUrl?`<a class="btn sm ghost" href="${E(o.pixTicketUrl)}" target="_blank" rel="noopener">Abrir pagamento</a>`:''}</div><p>Assim que o Mercado Pago confirmar, esta tela será atualizada automaticamente. Não é necessário enviar comprovante.</p></div>`:`<div class="pix"><b>Pix ainda não gerado</b><p>Se a cobrança não apareceu, tente novamente.</p><button class="btn sm" data-retry-pix="${E(o.id)}">Gerar Pix novamente</button></div>`):''}${!o.pago&&o.pag==='Cartão online'&&['cancelado','entregue'].indexOf(o.status)<0?`<div class="pix"><b>Pagamento com cartão</b><p>Use o formulário seguro do Mercado Pago. O Boca Delivery não recebe nem armazena o número do cartão ou o código de segurança.</p><div id="cardPaymentBrick_container"></div><p id="cardPaymentMessage" role="status"></p>${o.cardStatus?`<small>Status: ${E(o.cardStatus)} ${o.cardStatusDetail?'· '+E(o.cardStatusDetail):''}</small>`:''}</div>`:''}</div>`}))}
+  if(o.pag==='Cartão online'&&!o.pago&&['cancelado','entregue'].indexOf(o.status)<0)mountCardBrick(o);
   track();
 }
 
