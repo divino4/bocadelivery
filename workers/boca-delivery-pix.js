@@ -427,7 +427,7 @@ async function createCardPayment(request, env) {
   if (!["credit_card", "debit_card"].includes(paymentTypeId)) return json({ error: "Tipo de cartão não permitido." }, 400);
   if (!Number.isInteger(installments) || installments < 1 || installments > (paymentTypeId === "credit_card" ? 6 : 1)) return json({ error: "Parcelamento inválido." }, 400);
   if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Informe um e-mail válido." }, 400);
-  if (!["CPF", "CNPJ"].includes(identificationType) || !/^\\d{11}$|^\\d{14}$/.test(identificationNumber)) return json({ error: "Informe um CPF ou CNPJ válido." }, 400);
+  if (!["CPF", "CNPJ"].includes(identificationType) || !/^\d{11}$|^\d{14}$/.test(identificationNumber)) return json({ error: "Informe um CPF ou CNPJ válido." }, 400);
   if (!env.MP_ACCESS_TOKEN_TEST) return json({ error: "Credencial de teste do Mercado Pago ainda não configurada no servidor." }, 503);
   const identity = await verifyFirebaseIdToken(request, env);
   if (!identity) return json({ error: "Autenticação necessária. Atualize sua sessão e tente novamente." }, 401);
