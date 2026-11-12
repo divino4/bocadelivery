@@ -421,12 +421,12 @@ async function createCardPayment(request, env) {
   const installments = Number(input.installments);
   const issuerId = input.issuer_id == null ? undefined : Number(input.issuer_id);
   const identificationType = String(input.identification?.type || "");
-  const identificationNumber = String(input.identification?.number || "").replace(/\\D/g, "");
+  const identificationNumber = String(input.identification?.number || "").replace(/\D/g, "");
   if (!/^[A-Za-z0-9_-]{5,80}$/.test(orderId)) return json({ error: "Identificador do pedido inválido." }, 400);
   if (!token || token.length > 2000 || !paymentMethodId || paymentMethodId.length > 80) return json({ error: "Dados do cartão incompletos." }, 400);
   if (!["credit_card", "debit_card"].includes(paymentTypeId)) return json({ error: "Tipo de cartão não permitido." }, 400);
   if (!Number.isInteger(installments) || installments < 1 || installments > (paymentTypeId === "credit_card" ? 6 : 1)) return json({ error: "Parcelamento inválido." }, 400);
-  if (email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) return json({ error: "Informe um e-mail válido." }, 400);
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: "Informe um e-mail válido." }, 400);
   if (!["CPF", "CNPJ"].includes(identificationType) || !/^\\d{11}$|^\\d{14}$/.test(identificationNumber)) return json({ error: "Informe um CPF ou CNPJ válido." }, 400);
   if (!env.MP_ACCESS_TOKEN_TEST) return json({ error: "Credencial de teste do Mercado Pago ainda não configurada no servidor." }, 503);
   const identity = await verifyFirebaseIdToken(request, env);
