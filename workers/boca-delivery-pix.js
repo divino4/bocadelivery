@@ -2,9 +2,11 @@
 /**
  * Boca Delivery - Mercado Pago Pix Worker
  * Required Cloudflare secrets:
- *   MP_ACCESS_TOKEN
+ *   MP_ACCESS_TOKEN (production Pix)
+ *   MP_ACCESS_TOKEN_TEST (test card payments; never reuse production token)
  *   FIREBASE_SERVICE_ACCOUNT (JSON contents of Firebase service-account key)
- *   MP_WEBHOOK_SECRET
+ *   MP_WEBHOOK_SECRET (production webhook)
+ *   MP_WEBHOOK_SECRET_TEST (optional when test webhook uses a distinct secret)
  */
 const MP_API = "https://api.mercadopago.com";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -439,6 +441,7 @@ async function createCardPayment(request, env) {
   if (["cancelado", "entregue"].includes(order.status)) return json({ error: "Este pedido não aceita mais pagamento." }, 400);
   if (order.cardAttemptId || order.cardPaymentId) return json({ error: "Já existe uma tentativa de cartão para este pedido. A loja deverá verificar o status antes de uma nova cobrança." }, 409);
   const verified = await calculateOrder(env, order);
+  if (cents(order.total) !== cents(verified.total)) return json({ error: "O total do pedido mudou após a criação. Atualize o pedido antes de pagar com cartão." }, 409);
   const latest = await getDocSnapshot(env, "orders", orderId);
   if (!latest || String(latest.data.ownerUid || "") !== identity.uid) return json({ error: "Pedido não encontrado para esta conta." }, 404);
   if (latest.data.pago === true) return json({ paid: true });
