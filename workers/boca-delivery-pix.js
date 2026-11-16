@@ -477,11 +477,15 @@ async function createCardPayment(request, env) {
     const saved = await patchDocIfUnchanged(env, "orders", orderId, afterPayment.updateTime, {
       cardPaymentId: String(payment.id), cardStatus: String(payment.status),
       cardStatusDetail: String(payment.status_detail || ""),
-      cardPaymentType: String(payment.payment_type_id || paymentTypeId),
+      cardPaymentType: String(payment.payment_type_id || ""),
       cardPaymentMethod: paymentMethodId, cardInstallments: installments,
+      cardStatus: String(payment.payment_type_id || "") === paymentTypeId ? String(payment.status) : "review_required",
       cardUpdatedAt: new Date().toISOString()
     });
     if (!saved) return json({ error: "O pagamento foi enviado, mas não foi possível atualizar o pedido. A loja deverá verificar." }, 409);
+    if (String(payment.payment_type_id || "") !== paymentTypeId) {
+      return json({ paymentId: String(payment.id), status: "review_required", error: "O Mercado Pago retornou um tipo de cartão diferente do selecionado. A loja deverá verificar antes de qualquer nova tentativa." }, 409);
+    }
     return json({ paymentId: String(payment.id), status: String(payment.status), statusDetail: String(payment.status_detail || "") });
   } catch (error) {
     const failed = await getDocSnapshot(env, "orders", orderId).catch(() => null);
@@ -526,7 +530,8 @@ async function webhook(request, env) {
     const now = new Date().toISOString();
     if (isTestEnvironment) {
       const attemptId = String(payment.metadata?.card_attempt_id || "");
-      const validType = ["credit_card", "debit_card"].includes(String(payment.payment_type_id || ""));
+      const actualType = String(payment.payment_type_id || "");
+      const validType = ["credit_card", "debit_card"].includes(actualType) && actualType === String(order.cardPaymentType || "");
       if (order.pag !== "Cartão online" || !attemptId || order.cardAttemptId !== attemptId ||
           !validType || String(order.cardPaymentId || payment.id) !== String(payment.id) ||
           cents(payment.transaction_amount) !== cents(order.total)) return new Response("ok", { status: 200 });
