@@ -1,0 +1,11 @@
+{
+  "name": "boca-delivery-worker",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "preview": "wrangler preview --name bocadelivery-dev --json"
+  },
+  "devDependencies": {
+    "wrangler": "4.135.0"
+  }
+}
