@@ -1,0 +1,32 @@
+name: Boca Delivery Worker Preview
+
+on:
+  push:
+    branches:
+      - development/payments-hardening-2026-11-11
+    paths:
+      - "workers/**"
+      - "wrangler.jsonc"
+      - "package.json"
+      - ".github/workflows/worker-preview.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout development branch
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Wrangler
+        run: npm install
+      - name: Publish isolated Worker Preview (never production)
+        run: npx wrangler preview --name bocadelivery-dev --json
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
