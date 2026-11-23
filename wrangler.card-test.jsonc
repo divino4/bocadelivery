@@ -1,0 +1,8 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "boca-delivery-card-test",
+  "main": "dev-worker/boca-delivery-card-test.js",
+  "compatibility_date": "2026-11-16",
+  "workers_dev": true,
+  "preview_urls": true
+}
