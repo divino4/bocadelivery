@@ -6,6 +6,8 @@ on:
       - development/payments-hardening-2026-11-11
     paths:
       - "workers/**"
+      - "dev-worker/**"
+      - "wrangler.card-test.jsonc"
       - ".github/workflows/worker-static-check.yml"
 
 permissions:
@@ -19,5 +21,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Check Worker JavaScript syntax
+      - name: Check production Worker JavaScript syntax
         run: node --check workers/boca-delivery-pix.js
+      - name: Check isolated test card Worker JavaScript syntax
+        run: node --check dev-worker/boca-delivery-card-test.js
