@@ -197,6 +197,7 @@ async createPixPayment(orderId,email){
   const user=au.currentUser;
   if(!user)throw new Error('Sua sessão expirou. Entre novamente para gerar o Pix.');
   const idToken=await user.getIdToken();
+  throw new Error('Pix está desativado no ambiente de teste. Use o ambiente de produção para pedidos Pix.');
   const r=await fetch('https://boca-delivery-pix.valdivinomartinsdias89.workers.dev/create-pix',{
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
@@ -493,7 +494,9 @@ function cliente(){
     const paymentType=window.__bocaCardPaymentType||'credit_card';
     const saved=(()=>{try{return JSON.parse(LS.boca2_cli||'{}')}catch(e){return {}}})();
     try{
-      const mp=new window.MercadoPago('APP_USR-6f750e88-29f6-43d3-8448-0b786019dfa4');
+      const mpPublicKey=String(window.BOCA_MP_PUBLIC_KEY_TEST||'').trim();
+      if(!mpPublicKey)throw new Error('A Public Key de teste do Mercado Pago ainda não foi configurada neste ambiente.');
+      const mp=new window.MercadoPago(mpPublicKey);
       window.cardPaymentBrickController=await mp.bricks().create('cardPayment','cardPaymentBrick_container',{
         initialization:{amount:Number(order.total),payer:{email:String(saved.email||'')}},
         customization:{paymentMethods:{types:{excluded:paymentType==='credit_card'?['debit_card','prepaid_card']:['credit_card','prepaid_card']},maxInstallments:paymentType==='credit_card'?6:1}},
@@ -503,7 +506,7 @@ function cliente(){
             try{
               const user=S.clientUser&&S.clientUser();if(!user)throw new Error('Sua sessão expirou. Entre novamente.');
               const idToken=await user.getIdToken();
-              const response=await fetch('https://boca-delivery-pix.valdivinomartinsdias89.workers.dev/create-card-payment',{
+              const response=await fetch('https://boca-delivery-card-test.valdivinomartinsdias89.workers.dev/create-card-payment',{
                 method:'POST',
                 headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
                 body:JSON.stringify({orderId:order.id,token:formData.token,payment_method_id:formData.payment_method_id,payment_type_id:paymentType,installments:Number(formData.installments||1),issuer_id:formData.issuer_id,email:formData.payer&&formData.payer.email||saved.email,identification:formData.payer&&formData.payer.identification})
