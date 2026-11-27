@@ -302,7 +302,7 @@ async function calculateOrder(env, order) {
   if (totalCents <= 0) throw new Error("O total do pedido precisa ser maior que zero.");
   return { itens: verifiedItems, subtotal: subtotalCents / 100, desconto: discountCents / 100, taxa: deliveryCents / 100, total: totalCents / 100 };
 }
-async function mpRequest(env, path, options = {}, accessToken = env.MP_ACCESS_TOKEN) {
+async function mpRequest(env, path, options = {}, accessToken = env.MP_ACCESS_TOKEN_TEST) {
   if (!accessToken) throw new Error("Credencial Mercado Pago não configurada para este ambiente.");
   const response = await fetch(MP_API + path, {
     ...options,
@@ -521,7 +521,7 @@ async function webhook(request, env) {
   if (!isTestEnvironment) return new Response("Not found", { status: 404 });
   if (!await validWebhookSignature(request, dataId, env.MP_WEBHOOK_SECRET_TEST)) return new Response("Invalid signature", { status: 401 });
   try {
-    const payment = await mpRequest(env, "/v1/payments/" + encodeURIComponent(dataId), { method: "GET" }, isTestEnvironment ? env.MP_ACCESS_TOKEN_TEST : env.MP_ACCESS_TOKEN);
+    const payment = await mpRequest(env, "/v1/payments/" + encodeURIComponent(dataId), { method: "GET" }, env.MP_ACCESS_TOKEN_TEST);
     const orderId = String(payment.external_reference || "");
     const metadataOrderId = String(payment.metadata?.order_id || "");
     if (!orderId || metadataOrderId !== orderId || payment.currency_id !== "BRL") return new Response("ignored", { status: 200 });
