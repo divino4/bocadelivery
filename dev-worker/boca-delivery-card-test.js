@@ -1,12 +1,12 @@
 
 /**
  * Boca Delivery - Mercado Pago CARD TEST Worker
- * Required Cloudflare secrets:
- *   MP_ACCESS_TOKEN (production Pix)
- *   MP_ACCESS_TOKEN_TEST (test card payments; never reuse production token)
- *   FIREBASE_SERVICE_ACCOUNT (JSON contents of Firebase service-account key)
- *   MP_WEBHOOK_SECRET (production webhook)
- *   MP_WEBHOOK_SECRET_TEST (optional when test webhook uses a distinct secret)
+ * Required Cloudflare runtime secrets for this isolated test Worker:
+ *   MP_ACCESS_TOKEN_TEST (Mercado Pago test credentials only)
+ *   FIREBASE_SERVICE_ACCOUNT (JSON contents of the boca-delivery-teste service-account key)
+ *   MP_WEBHOOK_SECRET_TEST (test webhook signature secret only)
+ *
+ * Never configure production Mercado Pago credentials in this Worker.
  */
 const MP_API = "https://api.mercadopago.com";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -475,11 +475,11 @@ async function createCardPayment(request, env) {
       return json({ error: "O pagamento foi enviado, mas o pedido mudou durante o processamento. A loja deverá verificar." }, 409);
     }
     const saved = await patchDocIfUnchanged(env, "orders", orderId, afterPayment.updateTime, {
-      cardPaymentId: String(payment.id), cardStatus: String(payment.status),
+      cardPaymentId: String(payment.id),
+      cardStatus: String(payment.payment_type_id || "") === paymentTypeId ? String(payment.status) : "review_required",
       cardStatusDetail: String(payment.status_detail || ""),
       cardPaymentType: String(payment.payment_type_id || ""),
       cardPaymentMethod: paymentMethodId, cardInstallments: installments,
-      cardStatus: String(payment.payment_type_id || "") === paymentTypeId ? String(payment.status) : "review_required",
       cardUpdatedAt: new Date().toISOString()
     });
     if (!saved) return json({ error: "O pagamento foi enviado, mas não foi possível atualizar o pedido. A loja deverá verificar." }, 409);
@@ -498,8 +498,7 @@ async function createCardPayment(request, env) {
     return json({ error: "Não foi possível confirmar o envio do cartão. Não tente pagar novamente; a loja precisa verificar a tentativa." }, 502);
   }
 }
-async function validWebhookSignature(request, dataId, env, secretOverride) {
-  const secret = secretOverride || env.MP_WEBHOOK_SECRET;
+async function validWebhookSignature(request, dataId, secret) {
   const signature = request.headers.get("x-signature") || "";
   const requestId = request.headers.get("x-request-id") || "";
   const parts = Object.fromEntries(signature.split(",").map(x => x.trim().split("=").map(v => v.trim())));
@@ -520,7 +519,7 @@ async function webhook(request, env) {
   if (type && type !== "payment") return new Response("ignored", { status: 200 });
   const isTestEnvironment = url.searchParams.get("environment") === "test";
   if (!isTestEnvironment) return new Response("Not found", { status: 404 });
-  if (!await validWebhookSignature(request, dataId, env, isTestEnvironment ? env.MP_WEBHOOK_SECRET_TEST : env.MP_WEBHOOK_SECRET)) return new Response("Invalid signature", { status: 401 });
+  if (!await validWebhookSignature(request, dataId, env.MP_WEBHOOK_SECRET_TEST)) return new Response("Invalid signature", { status: 401 });
   try {
     const payment = await mpRequest(env, "/v1/payments/" + encodeURIComponent(dataId), { method: "GET" }, isTestEnvironment ? env.MP_ACCESS_TOKEN_TEST : env.MP_ACCESS_TOKEN);
     const orderId = String(payment.external_reference || "");
