@@ -8,6 +8,7 @@ on:
     paths:
       - "workers/**"
       - "dev-worker/**"
+      - "index.html"
       - "wrangler.card-test.jsonc"
       - ".github/workflows/worker-static-check.yml"
 
@@ -26,3 +27,7 @@ jobs:
         run: node --check workers/boca-delivery-pix.js
       - name: Check isolated test card Worker JavaScript syntax
         run: node --check dev-worker/boca-delivery-card-test.js
+      - name: Check inline JavaScript in index.html
+        run: |
+          node -e "const fs=require('fs');const html=fs.readFileSync('index.html','utf8');const scripts=[...html.matchAll(/<script\\b(?![^>]*\\bsrc=)[^>]*>([\\s\\S]*?)<\\/script>/gi)].map(m=>m[1]).filter(s=>s.trim());if(!scripts.length)throw new Error('No inline scripts found');scripts.forEach((s,i)=>fs.writeFileSync('/tmp/boca-inline-'+i+'.js',s));fs.writeFileSync('/tmp/boca-inline-count',String(scripts.length))"
+          for f in /tmp/boca-inline-*.js; do node --check "$f"; done
