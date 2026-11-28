@@ -536,17 +536,19 @@ async function checkCardPayment(request, env) {
     patch.pago = true;
     patch.cardApprovedAt = now;
   }
-  const saved = await patchDocIfUnchanged(env, "orders", orderId, snapshot.updateTime, patch);
-  if (!saved) {
-    const latest = await getDoc(env, "orders", orderId);
-    if (latest?.pago === true) return json({ paid: true, status: "approved" });
-    return json({ error: "O pedido mudou durante a consulta. Atualize o acompanhamento." }, 409);
-  }
+  // Registra a auditoria antes de marcar o pedido como pago. Se a gravação da
+  // auditoria falhar, o pedido permanece não pago e a consulta pode ser repetida.
   if (payment.status === "approved") {
     await createOrPatchDoc(env, "audit", "mp_card_" + paymentId, {
       orderId, action: "mercado_pago_cartao_aprovado", paymentId,
       amount: Number(payment.transaction_amount), actor: "mercado_pago_api_verification", ts: now
     });
+  }
+  const saved = await patchDocIfUnchanged(env, "orders", orderId, snapshot.updateTime, patch);
+  if (!saved) {
+    const latest = await getDoc(env, "orders", orderId);
+    if (latest?.pago === true) return json({ paid: true, status: "approved" });
+    return json({ error: "O pedido mudou durante a consulta. Atualize o acompanhamento." }, 409);
   }
   return json({ paid: payment.status === "approved", status: String(payment.status || "pending"), statusDetail: String(payment.status_detail || "") });
 }
