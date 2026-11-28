@@ -40,3 +40,4 @@ Nunca salvar esses valores no GitHub, HTML, arquivos de configuração ou mensag
 ## Situação desta preparação
 
 Os arquivos isolados podem ser preparados e revisados sem publicar Worker. Nenhum secret é criado automaticamente por estes arquivos; a configuração no painel/CLI e o deploy são etapas separadas e explícitas.
+<!-- Atualização de documentação para disparar a compilação do Worker de teste. -->
