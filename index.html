@@ -501,7 +501,22 @@ function cliente(){
                 body:JSON.stringify({orderId:order.id,token:formData.token,payment_method_id:formData.payment_method_id,payment_type_id:paymentType,installments:Number(formData.installments||1),issuer_id:formData.issuer_id,email:formData.payer&&formData.payer.email||saved.email,identification:formData.payer&&formData.payer.identification})
               });
               const result=await response.json();if(!response.ok)throw new Error(result.error||'Não foi possível enviar o pagamento.');
-              const message=document.getElementById('cardPaymentMessage');if(message)message.textContent='Pagamento enviado. Status inicial: '+result.status+'. A confirmação final será atualizada automaticamente.';
+              const message=document.getElementById('cardPaymentMessage');
+              if(message)message.textContent='Pagamento enviado. Consultando a confirmação no Mercado Pago...';
+              let latestStatus=String(result.status||'pending');
+              for(let attempt=0;attempt<5&&!['approved','rejected','cancelled','refunded','charged_back'].includes(latestStatus);attempt++){
+                await new Promise(done=>setTimeout(done,2000));
+                const check=await fetch('https://boca-delivery-card-test.valdivinomartinsdias89.workers.dev/check-card-payment',{
+                  method:'POST',
+                  headers:{'Content-Type':'application/json','Authorization':'Bearer '+idToken},
+                  body:JSON.stringify({orderId:order.id})
+                });
+                const checked=await check.json().catch(()=>({}));
+                if(!check.ok){if(message)message.textContent='Pagamento enviado. A confirmação ainda está pendente; não tente pagar novamente. '+(checked.error||'');break;}
+                latestStatus=String(checked.status||latestStatus);
+                if(checked.paid){if(message)message.textContent='Pagamento confirmado pelo Mercado Pago.';break;}
+                if(message)message.textContent='Pagamento enviado. Status no Mercado Pago: '+latestStatus+'.';
+              }
               resolve();
             }catch(error){const message=document.getElementById('cardPaymentMessage');if(message)message.textContent=error.message||'Falha ao processar o cartão.';reject();}
           }),
