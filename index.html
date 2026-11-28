@@ -89,6 +89,8 @@ summary{cursor:pointer}.ord small{color:var(--mut)}
 <noscript><p style="padding:16px">Ative o JavaScript do navegador para usar o Boca Delivery.</p></noscript>
 <script>
 (async()=>{
+// Chave pública do Mercado Pago para o ambiente de teste (não é Access Token).
+window.BOCA_MP_PUBLIC_KEY_TEST = "APP_USR-6f750e88-29f6-43d3-8448-0b786019dfa4";
 // ===== CONFIGURAÇÃO DO FIREBASE (projeto boca-delivery). Se trocar por null, o app volta ao MODO TESTE =====
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyDosUAB7NPbhwq1ZacWAMUn7cUs6Nx5rlc",
